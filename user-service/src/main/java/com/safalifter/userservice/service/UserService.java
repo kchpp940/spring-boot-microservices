@@ -10,6 +10,7 @@ import com.safalifter.userservice.repository.UserRepository;
 import com.safalifter.userservice.request.RegisterRequest;
 import com.safalifter.userservice.request.UserUpdateRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.modelmapper.ModelMapper;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -19,6 +20,7 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -85,15 +87,27 @@ public class UserService {
         toUpdate = toUpdate == null ? new UserDetails() : toUpdate;
 
         if (file != null) {
-            String profilePicture = fileStorageClient.uploadImageToFIleSystem(file).getBody();
-            if (profilePicture != null) {
-                fileStorageClient.deleteImageFromFileSystem(toUpdate.getProfilePicture());
-                toUpdate.setProfilePicture(profilePicture);
+            String oldProfilePicture = toUpdate.getProfilePicture();
+            String newProfilePicture = fileStorageClient.uploadImageToFIleSystem(file).getBody();
+
+            if (newProfilePicture != null) {
+                toUpdate.setProfilePicture(newProfilePicture);
+                safeDeleteFile(oldProfilePicture);
             }
         }
 
         modelMapper.map(request, toUpdate);
 
         return toUpdate;
+    }
+
+    private void safeDeleteFile(String fileId) {
+        if (fileId != null && !fileId.trim().isEmpty()) {
+            try {
+                fileStorageClient.deleteImageFromFileSystem(fileId);
+            } catch (Exception e) {
+                log.warn("Failed to delete file with id: {}", fileId, e);
+            }
+        }
     }
 }

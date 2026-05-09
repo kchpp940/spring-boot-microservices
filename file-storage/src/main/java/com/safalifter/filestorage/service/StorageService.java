@@ -4,8 +4,10 @@ import com.safalifter.filestorage.exc.GenericErrorResponse;
 import com.safalifter.filestorage.model.File;
 import com.safalifter.filestorage.repository.FileRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.PostConstruct;
@@ -17,21 +19,20 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class StorageService {
     private final FileRepository fileRepository;
-    private String FOLDER_PATH;
+
+    @Value("${file.storage.path}")
+    private String storagePath;
+
+    private java.io.File storageFolder;
 
     @PostConstruct
     public void init() {
-        String currentWorkingDirectory = System.getProperty("user.dir");
-
-        FOLDER_PATH = currentWorkingDirectory + "/file-storage/src/main/resources/attachments";
-
-        java.io.File targetFolder = new java.io.File(FOLDER_PATH);
-
-        if (!targetFolder.exists()) {
-            boolean directoriesCreated = targetFolder.mkdirs();
+        storageFolder = new java.io.File(storagePath);
+        if (!storageFolder.exists()) {
+            boolean directoriesCreated = storageFolder.mkdirs();
             if (!directoriesCreated) {
                 throw GenericErrorResponse.builder()
-                        .message("Unable to create directories")
+                        .message("Unable to create storage directories at: " + storagePath)
                         .httpStatus(HttpStatus.INTERNAL_SERVER_ERROR)
                         .build();
             }
@@ -40,10 +41,10 @@ public class StorageService {
 
     public String uploadImageToFileSystem(MultipartFile file) {
         String uuid = UUID.randomUUID().toString();
-        String filePath = FOLDER_PATH + "/" + uuid;
+        java.io.File targetFile = new java.io.File(storageFolder, uuid);
 
         try {
-            file.transferTo(new java.io.File(filePath));
+            file.transferTo(targetFile);
         } catch (IOException e) {
             throw GenericErrorResponse.builder()
                     .message("Unable to save file to storage")
@@ -54,14 +55,19 @@ public class StorageService {
         fileRepository.save(File.builder()
                 .id(uuid)
                 .type(file.getContentType())
-                .filePath(filePath).build());
+                .filePath(targetFile.getAbsolutePath())
+                .build());
         return uuid;
     }
 
+    public File getFileMetadata(String id) {
+        return findFileById(id);
+    }
+
     public byte[] downloadImageFromFileSystem(String id) {
+        java.io.File file = new java.io.File(findFileById(id).getFilePath());
         try {
-            return Files.readAllBytes(new java.io.File(findFileById(id)
-                    .getFilePath()).toPath());
+            return Files.readAllBytes(file.toPath());
         } catch (IOException e) {
             throw GenericErrorResponse.builder()
                     .message("Unable to read file from storage")
@@ -71,18 +77,29 @@ public class StorageService {
     }
 
     public void deleteImageFromFileSystem(String id) {
-        java.io.File file = new java.io.File(findFileById(id).getFilePath());
+        if (!StringUtils.hasText(id)) {
+            return;
+        }
 
-        boolean deletionResult = file.delete();
+        File fileMetadata = fileRepository.findById(id).orElse(null);
+        if (fileMetadata == null) {
+            return;
+        }
 
-        if (deletionResult) fileRepository.deleteById(id);
+        java.io.File file = new java.io.File(fileMetadata.getFilePath());
 
-        else throw GenericErrorResponse.builder()
-                .message("Unable to delete file from storage")
-                .httpStatus(HttpStatus.INTERNAL_SERVER_ERROR)
-                .build();
+        if (file.exists()) {
+            boolean deletionResult = file.delete();
+            if (!deletionResult) {
+                throw GenericErrorResponse.builder()
+                        .message("Unable to delete file from storage")
+                        .httpStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .build();
+            }
+        }
+
+        fileRepository.deleteById(id);
     }
-
 
     protected File findFileById(String id) {
         return fileRepository.findById(id)

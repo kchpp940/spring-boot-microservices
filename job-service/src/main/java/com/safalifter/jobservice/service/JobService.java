@@ -33,14 +33,19 @@ public class JobService {
         if (file != null)
             imageId = fileStorageClient.uploadImageToFIleSystem(file).getBody();
 
-        return jobRepository.save(Job.builder()
-                .name(request.getName())
-                .description(request.getDescription())
-                .category(category)
-                .keys(Optional.of(List.of(request.getKeys()))
-                        .orElse(new ArrayList<>()))
-                .imageId(imageId)
-                .build());
+        try {
+            return jobRepository.save(Job.builder()
+                    .name(request.getName())
+                    .description(request.getDescription())
+                    .category(category)
+                    .keys(Optional.of(List.of(request.getKeys()))
+                            .orElse(new ArrayList<>()))
+                    .imageId(imageId)
+                    .build());
+        } catch (Exception e) {
+            safeDeleteFile(imageId);
+            throw e;
+        }
     }
 
     public List<Job> getAll() {
@@ -67,17 +72,11 @@ public class JobService {
         }
 
         if (file != null) {
+            String oldImageId = toUpdate.getImageId();
             String newImageId = fileStorageClient.uploadImageToFIleSystem(file).getBody();
             if (newImageId != null) {
-                String oldImageId = toUpdate.getImageId();
-                if (oldImageId != null && !oldImageId.isEmpty()) {
-                    try {
-                        fileStorageClient.deleteImageFromFileSystem(oldImageId);
-                    } catch (Exception e) {
-                        log.warn("Failed to delete old image with id: {}", oldImageId, e);
-                    }
-                }
                 toUpdate.setImageId(newImageId);
+                safeDeleteFile(oldImageId);
             }
         }
 
@@ -85,7 +84,19 @@ public class JobService {
     }
 
     public void deleteJobById(String id) {
+        Job toDelete = findJobById(id);
+        safeDeleteFile(toDelete.getImageId());
         jobRepository.deleteById(id);
+    }
+
+    private void safeDeleteFile(String fileId) {
+        if (fileId != null && !fileId.trim().isEmpty()) {
+            try {
+                fileStorageClient.deleteImageFromFileSystem(fileId);
+            } catch (Exception e) {
+                log.warn("Failed to delete file with id: {}", fileId, e);
+            }
+        }
     }
 
     public List<Job> getJobsByCategoryId(String id) {

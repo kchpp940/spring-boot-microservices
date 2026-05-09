@@ -279,4 +279,55 @@ class JobServiceTest {
 
         assertThrows(NotFoundException.class, () -> jobService.getJobById("non-existent"));
     }
+
+    @Test
+    @DisplayName("createJob should delete uploaded file when database save fails")
+    void testCreateJob_DeletesUploadedFile_WhenDatabaseSaveFails() {
+        MultipartFile mockFile = mock(MultipartFile.class);
+        String uploadedFileId = "new-image-456";
+
+        when(categoryService.getCategoryById("category-123")).thenReturn(testCategory);
+        when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenReturn(ResponseEntity.ok(uploadedFileId));
+        when(jobRepository.save(any(Job.class))).thenThrow(new RuntimeException("Database error"));
+
+        var createRequest = mock(com.safalifter.jobservice.request.job.JobCreateRequest.class);
+        when(createRequest.getCategoryId()).thenReturn("category-123");
+        when(createRequest.getName()).thenReturn("New Job");
+        when(createRequest.getDescription()).thenReturn("Description");
+        when(createRequest.getKeys()).thenReturn("key1 key2");
+
+        assertThrows(RuntimeException.class, () -> jobService.createJob(createRequest, mockFile));
+
+        verify(fileStorageClient).deleteImageFromFileSystem(uploadedFileId);
+    }
+
+    @Test
+    @DisplayName("createJob should not call delete when no file is provided")
+    void testCreateJob_DoesNotCallDelete_WhenNoFileProvided() {
+        when(categoryService.getCategoryById("category-123")).thenReturn(testCategory);
+        when(jobRepository.save(any(Job.class))).thenReturn(testJob);
+
+        var createRequest = mock(com.safalifter.jobservice.request.job.JobCreateRequest.class);
+        when(createRequest.getCategoryId()).thenReturn("category-123");
+        when(createRequest.getName()).thenReturn("New Job");
+        when(createRequest.getDescription()).thenReturn("Description");
+        when(createRequest.getKeys()).thenReturn("key1 key2");
+
+        Job result = jobService.createJob(createRequest, null);
+
+        verify(fileStorageClient, never()).uploadImageToFIleSystem(any(MultipartFile.class));
+        verify(fileStorageClient, never()).deleteImageFromFileSystem(anyString());
+        assertNotNull(result);
+    }
+
+    @Test
+    @DisplayName("deleteJobById should delete associated image")
+    void testDeleteJobById_DeletesAssociatedImage() {
+        when(jobRepository.findById("job-123")).thenReturn(Optional.of(testJob));
+
+        jobService.deleteJobById("job-123");
+
+        verify(fileStorageClient).deleteImageFromFileSystem("old-image-123");
+        verify(jobRepository).deleteById("job-123");
+    }
 }

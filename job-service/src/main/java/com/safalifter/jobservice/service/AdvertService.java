@@ -12,6 +12,7 @@ import com.safalifter.jobservice.repository.AdvertRepository;
 import com.safalifter.jobservice.request.advert.AdvertCreateRequest;
 import com.safalifter.jobservice.request.advert.AdvertUpdateRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.modelmapper.ModelMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -21,6 +22,7 @@ import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AdvertService {
     private final AdvertRepository advertRepository;
     private final JobService jobService;
@@ -37,18 +39,23 @@ public class AdvertService {
         if (file != null)
             imageId = fileStorageClient.uploadImageToFIleSystem(file).getBody();
 
-        Advert toSave = Advert.builder()
-                .userId(userId)
-                .job(job)
-                .name(request.getName())
-                .advertiser(request.getAdvertiser())
-                .deliveryTime(request.getDeliveryTime())
-                .description(request.getDescription())
-                .price(request.getPrice())
-                .status(AdvertStatus.OPEN)
-                .imageId(imageId)
-                .build();
-        return advertRepository.save(toSave);
+        try {
+            Advert toSave = Advert.builder()
+                    .userId(userId)
+                    .job(job)
+                    .name(request.getName())
+                    .advertiser(request.getAdvertiser())
+                    .deliveryTime(request.getDeliveryTime())
+                    .description(request.getDescription())
+                    .price(request.getPrice())
+                    .status(AdvertStatus.OPEN)
+                    .imageId(imageId)
+                    .build();
+            return advertRepository.save(toSave);
+        } catch (Exception e) {
+            safeDeleteFile(imageId);
+            throw e;
+        }
     }
 
     public List<Advert> getAll() {
@@ -74,10 +81,11 @@ public class AdvertService {
         modelMapper.map(request, toUpdate);
 
         if (file != null) {
-            String imageId = fileStorageClient.uploadImageToFIleSystem(file).getBody();
-            if (imageId != null) {
-                fileStorageClient.deleteImageFromFileSystem(toUpdate.getImageId());
-                toUpdate.setImageId(imageId);
+            String oldImageId = toUpdate.getImageId();
+            String newImageId = fileStorageClient.uploadImageToFIleSystem(file).getBody();
+            if (newImageId != null) {
+                toUpdate.setImageId(newImageId);
+                safeDeleteFile(oldImageId);
             }
         }
 
@@ -85,6 +93,8 @@ public class AdvertService {
     }
 
     public void deleteAdvertById(String id) {
+        Advert toDelete = findAdvertById(id);
+        safeDeleteFile(toDelete.getImageId());
         advertRepository.deleteById(id);
     }
 
@@ -95,5 +105,15 @@ public class AdvertService {
     protected Advert findAdvertById(String id) {
         return advertRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Advert not found"));
+    }
+
+    private void safeDeleteFile(String fileId) {
+        if (fileId != null && !fileId.trim().isEmpty()) {
+            try {
+                fileStorageClient.deleteImageFromFileSystem(fileId);
+            } catch (Exception e) {
+                log.warn("Failed to delete file with id: {}", fileId, e);
+            }
+        }
     }
 }

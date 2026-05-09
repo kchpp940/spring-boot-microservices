@@ -2,11 +2,14 @@ package com.safalifter.userservice.service;
 
 import com.safalifter.userservice.client.FileStorageClient;
 import com.safalifter.userservice.enums.Active;
+import com.safalifter.userservice.enums.NotificationType;
 import com.safalifter.userservice.enums.Role;
 import com.safalifter.userservice.exc.NotFoundException;
+import com.safalifter.userservice.model.NotificationPreferences;
 import com.safalifter.userservice.model.User;
 import com.safalifter.userservice.model.UserDetails;
 import com.safalifter.userservice.repository.UserRepository;
+import com.safalifter.userservice.request.NotificationPreferencesUpdateRequest;
 import com.safalifter.userservice.request.UserUpdateRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -171,5 +174,103 @@ class UserServiceTest {
         when(userRepository.findById("non-existent")).thenReturn(Optional.empty());
 
         assertThrows(NotFoundException.class, () -> userService.getUserById("non-existent"));
+    }
+
+    @Test
+    @DisplayName("getNotificationPreferences 应返回用户偏好")
+    void testGetNotificationPreferences_ReturnsPreferences() {
+        NotificationPreferences prefs = new NotificationPreferences();
+        testUser.setNotificationPreferences(prefs);
+
+        when(userRepository.findById("user-123")).thenReturn(Optional.of(testUser));
+
+        NotificationPreferences result = userService.getNotificationPreferences("user-123");
+
+        assertNotNull(result);
+        assertEquals(prefs, result);
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    @DisplayName("getNotificationPreferences 当偏好为 null 时应创建默认偏好")
+    void testGetNotificationPreferences_CreatesDefaultWhenNull() {
+        testUser.setNotificationPreferences(null);
+
+        when(userRepository.findById("user-123")).thenReturn(Optional.of(testUser));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        NotificationPreferences result = userService.getNotificationPreferences("user-123");
+
+        assertNotNull(result);
+        for (NotificationType type : NotificationType.values()) {
+            assertTrue(result.isEnabled(type), "Expected " + type + " to be enabled by default");
+        }
+        verify(userRepository).save(testUser);
+    }
+
+    @Test
+    @DisplayName("updateNotificationPreferences 应更新指定类型的偏好")
+    void testUpdateNotificationPreferences_UpdatesSpecifiedTypes() {
+        NotificationPreferences prefs = new NotificationPreferences();
+        testUser.setNotificationPreferences(prefs);
+
+        NotificationPreferencesUpdateRequest request = new NotificationPreferencesUpdateRequest();
+        request.setUserId("user-123");
+        request.setPreferences(new java.util.EnumMap<>(NotificationType.class));
+        request.getPreferences().put(NotificationType.OFFER, false);
+
+        when(userRepository.findById("user-123")).thenReturn(Optional.of(testUser));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        NotificationPreferences result = userService.updateNotificationPreferences(request);
+
+        assertFalse(result.isEnabled(NotificationType.OFFER));
+        assertTrue(result.isEnabled(NotificationType.JOB_UPDATE));
+        assertTrue(result.isEnabled(NotificationType.SYSTEM_MESSAGE));
+        verify(userRepository).save(testUser);
+    }
+
+    @Test
+    @DisplayName("updateNotificationPreferences 当偏好为 null 时应创建并更新")
+    void testUpdateNotificationPreferences_CreatesAndUpdatesWhenNull() {
+        testUser.setNotificationPreferences(null);
+
+        NotificationPreferencesUpdateRequest request = new NotificationPreferencesUpdateRequest();
+        request.setUserId("user-123");
+        request.setPreferences(new java.util.EnumMap<>(NotificationType.class));
+        request.getPreferences().put(NotificationType.JOB_UPDATE, false);
+
+        when(userRepository.findById("user-123")).thenReturn(Optional.of(testUser));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        NotificationPreferences result = userService.updateNotificationPreferences(request);
+
+        assertNotNull(result);
+        assertTrue(result.isEnabled(NotificationType.OFFER));
+        assertFalse(result.isEnabled(NotificationType.JOB_UPDATE));
+        assertTrue(result.isEnabled(NotificationType.SYSTEM_MESSAGE));
+    }
+
+    @Test
+    @DisplayName("默认偏好应全部为 true")
+    void testDefaultPreferences_AllEnabled() {
+        NotificationPreferences prefs = new NotificationPreferences();
+
+        for (NotificationType type : NotificationType.values()) {
+            assertTrue(prefs.isEnabled(type), "Expected " + type + " to be enabled by default");
+        }
+    }
+
+    @Test
+    @DisplayName("setPreference 应正确设置偏好值")
+    void testSetPreference_SetsValueCorrectly() {
+        NotificationPreferences prefs = new NotificationPreferences();
+
+        prefs.setPreference(NotificationType.OFFER, false);
+        assertFalse(prefs.isEnabled(NotificationType.OFFER));
+        assertTrue(prefs.isEnabled(NotificationType.JOB_UPDATE));
+
+        prefs.setPreference(NotificationType.OFFER, true);
+        assertTrue(prefs.isEnabled(NotificationType.OFFER));
     }
 }

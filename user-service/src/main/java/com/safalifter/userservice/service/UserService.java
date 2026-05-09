@@ -5,9 +5,11 @@ import com.safalifter.userservice.enums.Active;
 import com.safalifter.userservice.enums.Role;
 import com.safalifter.userservice.exc.DuplicateResourceException;
 import com.safalifter.userservice.exc.NotFoundException;
+import com.safalifter.userservice.model.NotificationPreferences;
 import com.safalifter.userservice.model.User;
 import com.safalifter.userservice.model.UserDetails;
 import com.safalifter.userservice.repository.UserRepository;
+import com.safalifter.userservice.request.NotificationPreferencesUpdateRequest;
 import com.safalifter.userservice.request.RegisterRequest;
 import com.safalifter.userservice.request.UserUpdateRequest;
 import lombok.RequiredArgsConstructor;
@@ -36,7 +38,9 @@ public class UserService {
                 .password(passwordEncoder.encode(request.getPassword()))
                 .email(request.getEmail())
                 .role(Role.USER)
-                .active(Active.ACTIVE).build();
+                .active(Active.ACTIVE)
+                .notificationPreferences(new NotificationPreferences())
+                .build();
         return userRepository.save(toSave);
     }
 
@@ -81,6 +85,31 @@ public class UserService {
         User toDelete = findUserById(id);
         toDelete.setActive(Active.INACTIVE);
         userRepository.save(toDelete);
+    }
+
+    public NotificationPreferences getNotificationPreferences(String userId) {
+        User user = findUserById(userId);
+        NotificationPreferences prefs = user.getNotificationPreferences();
+        if (prefs == null) {
+            prefs = new NotificationPreferences();
+            user.setNotificationPreferences(prefs);
+            userRepository.save(user);
+        }
+        return prefs;
+    }
+
+    public NotificationPreferences updateNotificationPreferences(NotificationPreferencesUpdateRequest request) {
+        User user = findUserById(request.getUserId());
+        NotificationPreferences prefs = user.getNotificationPreferences();
+        if (prefs == null) {
+            prefs = new NotificationPreferences();
+            user.setNotificationPreferences(prefs);
+        }
+        if (request.getPreferences() != null) {
+            request.getPreferences().forEach(prefs::setPreference);
+        }
+        userRepository.save(user);
+        return prefs;
     }
 
     protected User findUserById(String id) {

@@ -1,5 +1,6 @@
 package com.safalifter.notificationservice.request;
 
+import com.safalifter.notificationservice.enums.NotificationType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -15,4 +16,5 @@ public class SendNotificationRequest {
     private String userId;
     private String offerId;
     private String message;
+    private NotificationType notificationType;
 }

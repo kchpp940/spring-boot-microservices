@@ -30,4 +30,7 @@ public class User extends BaseEntity {
 
     @Embedded
     private UserDetails userDetails;
+
+    @Embedded
+    private NotificationPreferences notificationPreferences;
 }

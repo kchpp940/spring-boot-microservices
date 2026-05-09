@@ -20,6 +20,7 @@ public class NotificationService {
                 .userId(request.getUserId())
                 .offerId(request.getOfferId())
                 .message(request.getMessage())
+                .type(request.getNotificationType())
                 .build();
         notificationRepository.save(notification);
     }

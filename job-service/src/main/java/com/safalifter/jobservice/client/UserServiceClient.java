@@ -1,13 +1,17 @@
 package com.safalifter.jobservice.client;
 
+import com.safalifter.jobservice.dto.NotificationPreferencesDto;
 import com.safalifter.jobservice.dto.UserDto;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 
-@FeignClient(name = "user-service", path = "/v1/user")
+@FeignClient(name = "user-service", path = "/v1/user", fallback = UserServiceClientFallback.class)
 public interface UserServiceClient {
     @GetMapping("/getUserById/{id}")
     ResponseEntity<UserDto> getUserById(@PathVariable String id);
+
+    @GetMapping("/notification-preferences/{userId}")
+    ResponseEntity<NotificationPreferencesDto> getNotificationPreferences(@PathVariable String userId);
 }

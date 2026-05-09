@@ -8,6 +8,7 @@ import com.safalifter.jobservice.repository.JobRepository;
 import com.safalifter.jobservice.request.job.JobCreateRequest;
 import com.safalifter.jobservice.request.job.JobUpdateRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.modelmapper.ModelMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -17,6 +18,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class JobService {
     private final JobRepository jobRepository;
     private final CategoryService categoryService;
@@ -50,14 +52,32 @@ public class JobService {
     }
 
     public Job updateJob(JobUpdateRequest request, MultipartFile file) {
-        Job toUpdate = findJobById(request.getCategoryId());
+        Job toUpdate = findJobById(request.getId());
+
         modelMapper.map(request, toUpdate);
 
+        if (request.getCategoryId() != null) {
+            String currentCategoryId = toUpdate.getCategory() != null
+                    ? toUpdate.getCategory().getId()
+                    : null;
+            if (!request.getCategoryId().equals(currentCategoryId)) {
+                Category newCategory = categoryService.getCategoryById(request.getCategoryId());
+                toUpdate.setCategory(newCategory);
+            }
+        }
+
         if (file != null) {
-            String imageId = fileStorageClient.uploadImageToFIleSystem(file).getBody();
-            if (imageId != null) {
-                fileStorageClient.deleteImageFromFileSystem(toUpdate.getImageId());
-                toUpdate.setImageId(imageId);
+            String newImageId = fileStorageClient.uploadImageToFIleSystem(file).getBody();
+            if (newImageId != null) {
+                String oldImageId = toUpdate.getImageId();
+                if (oldImageId != null && !oldImageId.isEmpty()) {
+                    try {
+                        fileStorageClient.deleteImageFromFileSystem(oldImageId);
+                    } catch (Exception e) {
+                        log.warn("Failed to delete old image with id: {}", oldImageId, e);
+                    }
+                }
+                toUpdate.setImageId(newImageId);
             }
         }
 

@@ -3,6 +3,7 @@ package com.safalifter.userservice.service;
 import com.safalifter.userservice.client.FileStorageClient;
 import com.safalifter.userservice.enums.Active;
 import com.safalifter.userservice.enums.Role;
+import com.safalifter.userservice.exc.DuplicateResourceException;
 import com.safalifter.userservice.exc.NotFoundException;
 import com.safalifter.userservice.model.User;
 import com.safalifter.userservice.model.UserDetails;
@@ -28,6 +29,8 @@ public class UserService {
     private final ModelMapper modelMapper;
 
     public User saveUser(RegisterRequest request) {
+        checkForDuplicateUsername(request.getUsername());
+        checkForDuplicateEmail(request.getEmail());
         User toSave = User.builder()
                 .username(request.getUsername())
                 .password(passwordEncoder.encode(request.getPassword()))
@@ -35,6 +38,18 @@ public class UserService {
                 .role(Role.USER)
                 .active(Active.ACTIVE).build();
         return userRepository.save(toSave);
+    }
+
+    private void checkForDuplicateUsername(String username) {
+        if (userRepository.existsByUsername(username)) {
+            throw new DuplicateResourceException("username", username);
+        }
+    }
+
+    private void checkForDuplicateEmail(String email) {
+        if (userRepository.existsByEmail(email)) {
+            throw new DuplicateResourceException("email", email);
+        }
     }
 
     public List<User> getAll() {

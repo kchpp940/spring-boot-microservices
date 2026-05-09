@@ -1,5 +1,6 @@
 package com.safalifter.userservice.exc;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -24,8 +25,14 @@ public class GeneralExceptionHandler extends ResponseEntityExceptionHandler {
                                                                   @NonNull HttpStatus status,
                                                                   @NonNull WebRequest request) {
         Map<String, String> errors = new HashMap<>();
-        ex.getBindingResult().getAllErrors()
-                .forEach(x -> errors.put(((FieldError) x).getField(), x.getDefaultMessage()));
+        ex.getBindingResult().getAllErrors().forEach(error -> {
+            if (error instanceof FieldError) {
+                FieldError fieldError = (FieldError) error;
+                errors.put(fieldError.getField(), fieldError.getDefaultMessage());
+            } else {
+                errors.put(error.getObjectName(), error.getDefaultMessage());
+            }
+        });
         return ResponseEntity.badRequest().body(errors);
     }
 
@@ -62,5 +69,41 @@ public class GeneralExceptionHandler extends ResponseEntityExceptionHandler {
         Map<String, String> errors = new HashMap<>();
         errors.put("error", exception.getMessage());
         return new ResponseEntity<>(errors, HttpStatus.FORBIDDEN);
+    }
+
+    @ExceptionHandler(DuplicateResourceException.class)
+    public ResponseEntity<?> duplicateResourceException(DuplicateResourceException exception) {
+        Map<String, String> errors = new HashMap<>();
+        errors.put("error", exception.getMessage());
+        errors.put("field", exception.getField());
+        errors.put("value", exception.getValue());
+        return new ResponseEntity<>(errors, exception.getHttpStatus());
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<?> dataIntegrityViolationException(DataIntegrityViolationException exception) {
+        Map<String, String> errors = new HashMap<>();
+        String message = exception.getMessage() != null ? exception.getMessage().toLowerCase() : "";
+
+        if (containsAny(message, "username", "uk_username", "idx_username")) {
+            errors.put("error", "username already exists");
+            errors.put("field", "username");
+        } else if (containsAny(message, "email", "uk_email", "idx_email")) {
+            errors.put("error", "email already exists");
+            errors.put("field", "email");
+        } else {
+            errors.put("error", "Data integrity violation: duplicate resource");
+        }
+        return new ResponseEntity<>(errors, HttpStatus.CONFLICT);
+    }
+
+    private boolean containsAny(String source, String... targets) {
+        if (source == null) return false;
+        for (String target : targets) {
+            if (source.contains(target.toLowerCase())) {
+                return true;
+            }
+        }
+        return false;
     }
 }

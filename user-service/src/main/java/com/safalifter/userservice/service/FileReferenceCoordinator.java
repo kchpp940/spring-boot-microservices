@@ -1,6 +1,6 @@
 package com.safalifter.userservice.service;
 
-import com.safalifter.userservice.client.FileStorageClient;
+import com.safalifter.userservice.client.adapter.FileStorageClientAdapter;
 import com.safalifter.userservice.dto.FileReferenceRequest;
 import com.safalifter.userservice.dto.FileReferenceResponse;
 import lombok.RequiredArgsConstructor;
@@ -13,16 +13,16 @@ import org.springframework.web.multipart.MultipartFile;
 @RequiredArgsConstructor
 @Slf4j
 public class FileReferenceCoordinator {
-    private final FileStorageClient fileStorageClient;
+    private final FileStorageClientAdapter fileStorageClientAdapter;
 
     public FileReferenceResponse bindReference(String entityType, String entityId, String fileId) {
         if (!StringUtils.hasText(fileId) || !StringUtils.hasText(entityType) || !StringUtils.hasText(entityId)) {
             return null;
         }
         try {
-            var response = fileStorageClient.bindReference(buildRequest(fileId, entityType, entityId));
+            FileReferenceResponse result = fileStorageClientAdapter.bindReference(buildRequest(fileId, entityType, entityId));
             log.info("Bound file {} to {}:{}", fileId, entityType, entityId);
-            return response.getBody();
+            return result;
         } catch (Exception e) {
             log.error("Failed to bind file {} to {}:{}", fileId, entityType, entityId, e);
             throw e;
@@ -34,9 +34,9 @@ public class FileReferenceCoordinator {
             return null;
         }
         try {
-            var response = fileStorageClient.unbindReference(buildRequest(fileId, entityType, entityId));
+            FileReferenceResponse result = fileStorageClientAdapter.unbindReference(buildRequest(fileId, entityType, entityId));
             log.info("Unbound file {} from {}:{}", fileId, entityType, entityId);
-            return response.getBody();
+            return result;
         } catch (Exception e) {
             log.warn("Failed to unbind file {} from {}:{}", fileId, entityType, entityId, e);
             return null;
@@ -61,7 +61,7 @@ public class FileReferenceCoordinator {
             return;
         }
         try {
-            fileStorageClient.deleteImageFromFileSystem(fileId);
+            fileStorageClientAdapter.deleteImage(fileId);
             log.info("Deleted file: {}", fileId);
         } catch (Exception e) {
             log.warn("Failed to delete file: {}", fileId, e);
@@ -73,8 +73,7 @@ public class FileReferenceCoordinator {
             return null;
         }
         try {
-            var response = fileStorageClient.uploadImageToFIleSystem(file);
-            String fileId = response.getBody();
+            String fileId = fileStorageClientAdapter.uploadImage(file);
             log.info("Uploaded file: {}", fileId);
             return fileId;
         } catch (Exception e) {

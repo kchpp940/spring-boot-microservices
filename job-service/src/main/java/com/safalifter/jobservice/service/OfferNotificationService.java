@@ -1,6 +1,6 @@
 package com.safalifter.jobservice.service;
 
-import com.safalifter.jobservice.client.UserServiceClient;
+import com.safalifter.jobservice.client.adapter.UserServiceClientAdapter;
 import com.safalifter.jobservice.dto.NotificationPreferencesDto;
 import com.safalifter.jobservice.enums.NotificationType;
 import com.safalifter.jobservice.model.Advert;
@@ -9,28 +9,20 @@ import com.safalifter.jobservice.request.notification.SendNotificationRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.admin.NewTopic;
-import org.springframework.http.ResponseEntity;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
-
-import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class OfferNotificationService {
 
-    private final UserServiceClient userServiceClient;
+    private final UserServiceClientAdapter userServiceClientAdapter;
     private final KafkaTemplate<String, SendNotificationRequest> kafkaTemplate;
     private final NewTopic topic;
 
     public NotificationPreferencesDto getNotificationPreferences(String userId) {
-        ResponseEntity<NotificationPreferencesDto> response = userServiceClient.getNotificationPreferences(userId);
-        if (response != null && response.getBody() != null) {
-            return response.getBody();
-        }
-        log.warn("Failed to get notification preferences for userId: {}, using default", userId);
-        return NotificationPreferencesDto.createDefault(userId);
+        return userServiceClientAdapter.getNotificationPreferencesOrDefault(userId);
     }
 
     public void notifyAdvertOwnerOfNewOffer(Offer offer) {

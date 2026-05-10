@@ -1,10 +1,8 @@
 package com.safalifter.authservice.orchestration.compensation;
 
-import com.safalifter.authservice.client.UserServiceClient;
+import com.safalifter.authservice.client.adapter.UserServiceClientAdapter;
 import com.safalifter.authservice.orchestration.RegistrationContext;
 import com.safalifter.authservice.orchestration.exception.RegistrationCompensationException;
-import com.safalifter.authservice.orchestration.exception.RegistrationFeignException;
-import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -14,7 +12,7 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class UserRollbackCompensationStrategy implements CompensationStrategy {
 
-    private final UserServiceClient userServiceClient;
+    private final UserServiceClientAdapter userServiceClientAdapter;
 
     @Override
     public String getName() {
@@ -32,17 +30,8 @@ public class UserRollbackCompensationStrategy implements CompensationStrategy {
         log.warn("Executing user rollback compensation for userId={}", userId);
 
         try {
-            userServiceClient.internalHardDeleteUserById(userId);
+            userServiceClientAdapter.internalHardDeleteUserById(userId);
             log.info("User rollback completed successfully for userId={}", userId);
-        } catch (FeignException feignEx) {
-            log.error("Feign exception during user rollback for userId={}, status={}, message={}", 
-                    userId, feignEx.status(), feignEx.getMessage());
-            throw new RegistrationCompensationException(
-                    "Feign error during user rollback: " + feignEx.getMessage(),
-                    feignEx,
-                    context.getFailedStep(),
-                    "USER_ROLLBACK"
-            );
         } catch (Exception e) {
             log.error("Unexpected error during user rollback for userId={}", userId, e);
             throw new RegistrationCompensationException(

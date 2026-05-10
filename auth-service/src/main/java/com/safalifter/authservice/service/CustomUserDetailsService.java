@@ -1,7 +1,8 @@
 package com.safalifter.authservice.service;
 
 
-import com.safalifter.authservice.client.UserServiceClient;
+import com.safalifter.authservice.client.adapter.UserServiceClientAdapter;
+import com.safalifter.authservice.dto.UserDto;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -9,16 +10,18 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class CustomUserDetailsService implements UserDetailsService {
-    private final UserServiceClient userServiceClient;
+    private final UserServiceClientAdapter userServiceClientAdapter;
 
-    public CustomUserDetailsService(UserServiceClient userServiceClient) {
-        this.userServiceClient = userServiceClient;
+    public CustomUserDetailsService(UserServiceClientAdapter userServiceClientAdapter) {
+        this.userServiceClientAdapter = userServiceClientAdapter;
     }
 
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
-        var user = userServiceClient.getUserByUsername(username).getBody();
-        assert user != null;
+        UserDto user = userServiceClientAdapter.getUserByUsername(username);
+        if (user == null) {
+            throw new UsernameNotFoundException("User not found: " + username);
+        }
         return new CustomUserDetails(user);
     }
 }

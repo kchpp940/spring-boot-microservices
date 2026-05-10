@@ -1,6 +1,6 @@
 package com.safalifter.jobservice.service;
 
-import com.safalifter.jobservice.client.UserServiceClient;
+import com.safalifter.jobservice.client.adapter.UserServiceClientAdapter;
 import com.safalifter.jobservice.dto.UserDto;
 import com.safalifter.jobservice.exc.DuplicateFavoriteException;
 import com.safalifter.jobservice.exc.NotFoundException;
@@ -8,7 +8,6 @@ import com.safalifter.jobservice.exc.UnauthorizedException;
 import com.safalifter.jobservice.model.Favorite;
 import com.safalifter.jobservice.model.Job;
 import com.safalifter.jobservice.repository.FavoriteRepository;
-import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
@@ -21,7 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class FavoriteService {
     private final FavoriteRepository favoriteRepository;
     private final JobService jobService;
-    private final UserServiceClient userServiceClient;
+    private final UserServiceClientAdapter userServiceClientAdapter;
 
     @Transactional
     public Favorite addFavorite(String username, String jobId) {
@@ -63,16 +62,6 @@ public class FavoriteService {
         if (username == null || username.trim().isEmpty()) {
             throw new UnauthorizedException("User not authenticated");
         }
-        try {
-            UserDto user = userServiceClient.getUserInfoByUsername(username).getBody();
-            if (user == null || user.getId() == null) {
-                throw new NotFoundException("User not found: " + username);
-            }
-            return user;
-        } catch (FeignException.NotFound e) {
-            throw new NotFoundException("User not found: " + username);
-        } catch (FeignException e) {
-            throw new UnauthorizedException("Failed to validate user: " + username);
-        }
+        return userServiceClientAdapter.getUserInfoByUsernameOrThrow(username);
     }
 }

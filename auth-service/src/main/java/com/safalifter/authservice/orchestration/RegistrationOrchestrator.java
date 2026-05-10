@@ -1,21 +1,18 @@
 package com.safalifter.authservice.orchestration;
 
-import com.safalifter.authservice.client.NotificationServiceClient;
-import com.safalifter.authservice.client.UserServiceClient;
+import com.safalifter.authservice.client.adapter.NotificationServiceClientAdapter;
+import com.safalifter.authservice.client.adapter.UserServiceClientAdapter;
 import com.safalifter.authservice.dto.RegisterDto;
 import com.safalifter.authservice.enums.NotificationType;
 import com.safalifter.authservice.exc.GenericErrorResponse;
 import com.safalifter.authservice.orchestration.compensation.CompensationStrategy;
 import com.safalifter.authservice.orchestration.exception.RegistrationBusinessException;
 import com.safalifter.authservice.orchestration.exception.RegistrationCompensationException;
-import com.safalifter.authservice.orchestration.exception.RegistrationFeignException;
 import com.safalifter.authservice.request.RegisterRequest;
 import com.safalifter.authservice.request.SendNotificationRequest;
-import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -25,8 +22,8 @@ import java.util.List;
 @RequiredArgsConstructor
 public class RegistrationOrchestrator {
 
-    private final UserServiceClient userServiceClient;
-    private final NotificationServiceClient notificationServiceClient;
+    private final UserServiceClientAdapter userServiceClientAdapter;
+    private final NotificationServiceClientAdapter notificationServiceClientAdapter;
     private final List<CompensationStrategy> compensationStrategies;
 
     public RegisterDto orchestrate(RegisterRequest request) {
@@ -43,15 +40,15 @@ public class RegistrationOrchestrator {
                 handleFailure(context, e);
             }
             throw e;
-        } catch (RegistrationFeignException e) {
-            log.error("Registration failed due to Feign error. Service={}, Operation={}, Status={}",
-                    e.getServiceName(), e.getOperation(), e.getStatus());
-            handleFailure(context, e);
-            throw wrapFeignException(e);
         } catch (RegistrationCompensationException e) {
             log.error("Registration and compensation both failed. FailedStep={}, CompensationStep={}",
                     e.getFailedStep(), e.getCompensationStep());
             throw wrapCompensationException(e);
+        } catch (GenericErrorResponse e) {
+            log.error("Registration failed due to service error. Service step={}, Status={}",
+                    context.getFailedStep(), e.getHttpStatus());
+            handleFailure(context, e);
+            throw wrapGenericErrorResponse(e, context.getFailedStep());
         } catch (Exception e) {
             log.error("Unexpected registration error", e);
             context.setFailureCause(e);
@@ -82,30 +79,16 @@ public class RegistrationOrchestrator {
         log.info("Calling user-service to create user: {}", context.getRequest().getUsername());
         
         try {
-            ResponseEntity<RegisterDto> response = userServiceClient.save(context.getRequest());
-            
-            if (response == null || response.getBody() == null) {
-                throw GenericErrorResponse.builder()
-                        .httpStatus(HttpStatus.INTERNAL_SERVER_ERROR)
-                        .message("Failed to create user: empty response from user-service")
-                        .build();
-            }
-            
-            log.info("User created successfully: userId={}", response.getBody().getId());
-            return response.getBody();
+            RegisterDto user = userServiceClientAdapter.save(context.getRequest());
+            log.info("User created successfully: userId={}", user.getId());
+            return user;
             
         } catch (GenericErrorResponse e) {
-            log.info("User-service returned business error: status={}, message={}",
+            log.info("User-service returned error: status={}, message={}",
                     e.getHttpStatus(), e.getMessage());
             context.setFailedStep("USER_CREATION");
             context.setFailureCause(e);
-            throw new RegistrationBusinessException(e);
-        } catch (FeignException e) {
-            log.error("Feign error calling user-service: status={}, message={}",
-                    e.status(), e.getMessage());
-            context.setFailedStep("USER_CREATION");
-            context.setFailureCause(e);
-            throw new RegistrationFeignException("user-service", "USER_CREATION", e);
+            throw e;
         }
     }
 
@@ -120,25 +103,13 @@ public class RegistrationOrchestrator {
                 .build();
 
         try {
-            ResponseEntity<Void> response = notificationServiceClient.save(welcomeRequest);
-            
-            if (response == null) {
-                throw GenericErrorResponse.builder()
-                        .httpStatus(HttpStatus.INTERNAL_SERVER_ERROR)
-                        .message("Failed to send welcome notification: empty response from notification-service")
-                        .build();
-            }
-            
+            notificationServiceClientAdapter.save(welcomeRequest);
             log.info("Welcome notification sent successfully for userId={}", user.getId());
             
         } catch (GenericErrorResponse e) {
-            log.warn("Notification-service returned business error: status={}, message={}",
+            log.warn("Notification-service returned error: status={}, message={}",
                     e.getHttpStatus(), e.getMessage());
-            throw new RegistrationBusinessException(e);
-        } catch (FeignException e) {
-            log.error("Feign error calling notification-service: status={}, message={}",
-                    e.status(), e.getMessage());
-            throw new RegistrationFeignException("notification-service", "NOTIFICATION_SEND", e);
+            throw e;
         }
     }
 
@@ -179,14 +150,14 @@ public class RegistrationOrchestrator {
                 .orElse(null);
     }
 
-    private GenericErrorResponse wrapFeignException(RegistrationFeignException e) {
-        HttpStatus status = HttpStatus.resolve(e.getStatus());
+    private GenericErrorResponse wrapGenericErrorResponse(GenericErrorResponse e, String failedStep) {
+        HttpStatus status = e.getHttpStatus();
         if (status == null || !status.is5xxServerError()) {
             status = HttpStatus.INTERNAL_SERVER_ERROR;
         }
         return GenericErrorResponse.builder()
                 .httpStatus(status)
-                .message("Service unavailable: " + e.getServiceName() + " - " + e.getOperation())
+                .message("Service unavailable: " + failedStep + " - " + e.getMessage())
                 .build();
     }
 

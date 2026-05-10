@@ -1,7 +1,6 @@
 package com.safalifter.jobservice.service;
 
-import com.safalifter.jobservice.client.UserServiceClient;
-import com.safalifter.jobservice.dto.NotificationPreferencesDto;
+import com.safalifter.jobservice.client.adapter.UserServiceClientAdapter;
 import com.safalifter.jobservice.dto.UserDto;
 import com.safalifter.jobservice.enums.OfferStateMachine;
 import com.safalifter.jobservice.enums.OfferStatus;
@@ -12,12 +11,10 @@ import com.safalifter.jobservice.repository.OfferRepository;
 import com.safalifter.jobservice.request.offer.MakeAnOfferRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -25,7 +22,7 @@ import java.util.Optional;
 public class OfferService {
     private final OfferRepository offerRepository;
     private final AdvertService advertService;
-    private final UserServiceClient userServiceClient;
+    private final UserServiceClientAdapter userServiceClientAdapter;
     private final OfferNotificationService offerNotificationService;
 
     public Offer makeAnOffer(MakeAnOfferRequest request) {
@@ -59,10 +56,7 @@ public class OfferService {
     }
 
     public UserDto getUserById(String id) {
-        ResponseEntity<UserDto> response = userServiceClient.getUserById(id);
-        return Optional.ofNullable(response)
-                .map(ResponseEntity::getBody)
-                .orElseThrow(() -> new NotFoundException("User not found"));
+        return userServiceClientAdapter.getUserByIdOrThrow(id);
     }
 
     @Transactional

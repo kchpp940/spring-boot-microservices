@@ -46,7 +46,7 @@ public class GeneralExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(Exception.class)
     public final ResponseEntity<?> handleAllException(Exception ex) {
         Map<String, String> errors = new HashMap<>();
-        errors.put("error", ex.getMessage());
+        errors.put("error", ex.getMessage() != null ? ex.getMessage() : "Internal server error");
         return new ResponseEntity<>(errors, HttpStatus.BAD_REQUEST);
     }
 

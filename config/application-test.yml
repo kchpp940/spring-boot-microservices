@@ -1,0 +1,21 @@
+spring:
+  config:
+    activate:
+      on-profile: test
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+
+  kafka:
+    producer:
+      acks: 0
+
+eureka:
+  client:
+    enabled: false
+
+logging:
+  level:
+    com.safalifter: INFO

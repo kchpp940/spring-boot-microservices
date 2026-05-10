@@ -1,0 +1,11 @@
+server:
+  port: 0
+
+spring:
+  application:
+    name: user-service
+  config:
+    import: configserver:${CONFIG_SERVER_URL:http://localhost:8888/}
+
+application:
+  title: User Service

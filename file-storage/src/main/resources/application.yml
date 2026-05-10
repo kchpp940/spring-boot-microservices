@@ -1,0 +1,16 @@
+server:
+  port: 0
+
+spring:
+  application:
+    name: file-storage
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 5MB
+  config:
+    import: configserver:${CONFIG_SERVER_URL:http://localhost:8888/}
+
+file:
+  storage:
+    path: ${user.home}/spring-boot-microservices/file-storage

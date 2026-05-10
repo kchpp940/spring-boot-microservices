@@ -5,13 +5,13 @@ services:
     container_name: postgres
     image: postgres:latest
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 55
-      POSTGRES_DB: microservice
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-55}
+      POSTGRES_DB: ${POSTGRES_DB:-microservice}
     volumes:
         - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
 
   zookeeper:
     container_name: zookeeper
@@ -27,7 +27,7 @@ services:
     container_name: kafka
     image: "docker.io/bitnami/kafka:2-debian-10"
     ports:
-      - "9092:9092"
+      - "${KAFKA_PORT:-9092}:9092"
     expose:
       - "9093"
     volumes:
@@ -35,9 +35,9 @@ services:
     environment:
       - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
       - ALLOW_PLAINTEXT_LISTENER=yes
-      - KAFKA_ADVERTISED_LISTENERS=INSIDE://kafka:9093,OUTSIDE://localhost:9092
+      - KAFKA_ADVERTISED_LISTENERS=INSIDE://kafka:9093,OUTSIDE://localhost:${KAFKA_PORT:-9092}
       - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=INSIDE:PLAINTEXT,OUTSIDE:PLAINTEXT
-      - KAFKA_LISTENERS=INSIDE://0.0.0.0:9093,OUTSIDE://0.0.0.0:9092
+      - KAFKA_LISTENERS=INSIDE://0.0.0.0:9093,OUTSIDE://0.0.0.0:${KAFKA_PORT:-9092}
       - KAFKA_INTER_BROKER_LISTENER_NAME=INSIDE
       - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
     depends_on:

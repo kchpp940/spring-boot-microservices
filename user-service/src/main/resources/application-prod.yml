@@ -1,0 +1,15 @@
+spring:
+  config:
+    activate:
+      on-profile: prod
+    import: configserver:${CONFIG_SERVER_URL}
+
+server:
+  error:
+    include-stacktrace: never
+    include-message: never
+
+logging:
+  level:
+    com.safalifter: INFO
+    org.hibernate: ERROR

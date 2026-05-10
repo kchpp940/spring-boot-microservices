@@ -1,0 +1,54 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: update
+    database: postgresql
+
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:microservice}
+    username: ${POSTGRES_USER:postgres}
+    password: ${POSTGRES_PASSWORD:55}
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    topic:
+      name: notificationTopic
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      group-id: notification
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring:
+          json:
+            trusted:
+              packages: "*"
+            value:
+              default:
+                type: com.safalifter.notificationservice.request.SendNotificationRequest
+            use:
+              type:
+                headers: false
+
+eureka:
+  instance:
+    prefer-ip-address: true
+  client:
+    service-url:
+      default-zone: ${EUREKA_URI:http://localhost:8761/eureka}
+
+application:
+  description: Its Done UK Application
+  license: API Licence
+  version: 1.0
+
+jwt:
+  secret: ${JWT_SECRET:5367566B59703373367639792F423F4528482B4D6251655468576D5A71347437}
+  expiration-ms: ${JWT_EXPIRATION_MS:3600000}
+
+feign:
+  circuitbreaker:
+    enabled: true

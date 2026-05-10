@@ -5,10 +5,7 @@ import com.safalifter.authservice.dto.UserDto;
 import com.safalifter.authservice.request.RegisterRequest;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.*;
 
 @FeignClient(name = "user-service", path = "/v1/user")
 public interface UserServiceClient {
@@ -17,4 +14,7 @@ public interface UserServiceClient {
 
     @GetMapping("/getUserByUsername/{username}")
     ResponseEntity<UserDto> getUserByUsername(@PathVariable String username);
+
+    @DeleteMapping("/internal/hardDeleteUserById/{id}")
+    ResponseEntity<Void> internalHardDeleteUserById(@PathVariable String id);
 }

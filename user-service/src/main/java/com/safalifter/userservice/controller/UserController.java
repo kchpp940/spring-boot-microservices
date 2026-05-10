@@ -74,6 +74,12 @@ public class UserController {
         return ResponseEntity.ok().build();
     }
 
+    @DeleteMapping("/internal/hardDeleteUserById/{id}")
+    public ResponseEntity<Void> internalHardDeleteUserById(@PathVariable String id) {
+        userService.hardDeleteUserById(id);
+        return ResponseEntity.ok().build();
+    }
+
     @GetMapping("/notification-preferences/{userId}")
     @PreAuthorize("hasRole('ADMIN') or @userService.getUserById(#userId).username == principal")
     public ResponseEntity<NotificationPreferencesDto> getNotificationPreferences(@PathVariable String userId) {

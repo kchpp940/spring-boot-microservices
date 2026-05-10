@@ -1,6 +1,5 @@
 package com.safalifter.authservice.service;
 
-import com.safalifter.authservice.client.UserServiceClient;
 import com.safalifter.authservice.dto.RegisterDto;
 import com.safalifter.authservice.dto.TokenDto;
 import com.safalifter.authservice.exc.WrongCredentialsException;
@@ -16,7 +15,7 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class AuthService {
     private final AuthenticationManager authenticationManager;
-    private final UserServiceClient userServiceClient;
+    private final RegistrationOrchestrationService registrationOrchestrationService;
     private final JwtService jwtService;
 
     public TokenDto login(LoginRequest request) {
@@ -30,6 +29,6 @@ public class AuthService {
     }
 
     public RegisterDto register(RegisterRequest request) {
-        return userServiceClient.save(request).getBody();
+        return registrationOrchestrationService.orchestrateRegistration(request);
     }
 }

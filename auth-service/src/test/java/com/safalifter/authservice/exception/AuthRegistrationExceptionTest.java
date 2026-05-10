@@ -1,13 +1,12 @@
 package com.safalifter.authservice.exception;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.safalifter.authservice.client.NotificationServiceClient;
 import com.safalifter.authservice.client.UserServiceClient;
 import com.safalifter.authservice.dto.RegisterDto;
 import com.safalifter.authservice.exc.GenericErrorResponse;
 import com.safalifter.authservice.exc.ValidationException;
 import com.safalifter.authservice.request.RegisterRequest;
-import feign.FeignException;
-import feign.RetryableException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,7 +22,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -39,6 +39,9 @@ class AuthRegistrationExceptionTest {
 
     @MockBean
     private UserServiceClient userServiceClient;
+
+    @MockBean
+    private NotificationServiceClient notificationServiceClient;
 
     @Test
     @DisplayName("Controller层: 无效参数应该返回 400 BAD_REQUEST")
@@ -170,27 +173,107 @@ class AuthRegistrationExceptionTest {
     }
 
     @Test
-    @DisplayName("Controller层: 成功注册应该返回 200 OK")
-    void validRequest_shouldReturn200() throws Exception {
+    @DisplayName("Controller层: 成功注册应该返回 200 OK 并发送欢迎通知")
+    void validRequest_shouldReturn200AndSendWelcomeNotification() throws Exception {
         RegisterRequest request = new RegisterRequest();
         request.setUsername("validuser");
         request.setPassword("Password123");
         request.setEmail("valid@example.com");
 
         RegisterDto registerDto = RegisterDto.builder()
+                .id("user-123")
                 .username("validuser")
                 .email("valid@example.com")
                 .build();
 
         when(userServiceClient.save(any(RegisterRequest.class)))
                 .thenReturn(ResponseEntity.ok(registerDto));
+        when(notificationServiceClient.save(any()))
+                .thenReturn(ResponseEntity.ok().build());
 
         mockMvc.perform(post("/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value("user-123"))
                 .andExpect(jsonPath("$.username").value("validuser"))
                 .andExpect(jsonPath("$.email").value("valid@example.com"));
+
+        verify(userServiceClient, times(1)).save(any(RegisterRequest.class));
+        verify(notificationServiceClient, times(1)).save(any());
+        verify(userServiceClient, never()).internalHardDeleteUserById(anyString());
+    }
+
+    @Test
+    @DisplayName("Orchestration: notification-service 失败时应该回滚 user-service 创建的用户")
+    void notificationServiceFailure_shouldRollbackUser() throws Exception {
+        RegisterRequest request = new RegisterRequest();
+        request.setUsername("testuser");
+        request.setPassword("Password123");
+        request.setEmail("test@example.com");
+
+        RegisterDto registerDto = RegisterDto.builder()
+                .id("user-456")
+                .username("testuser")
+                .email("test@example.com")
+                .build();
+
+        when(userServiceClient.save(any(RegisterRequest.class)))
+                .thenReturn(ResponseEntity.ok(registerDto));
+        when(notificationServiceClient.save(any()))
+                .thenThrow(GenericErrorResponse.builder()
+                        .httpStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .message("Notification service failed")
+                        .build());
+        when(userServiceClient.internalHardDeleteUserById("user-456"))
+                .thenReturn(ResponseEntity.ok().build());
+
+        mockMvc.perform(post("/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.error").exists());
+
+        verify(userServiceClient, times(1)).save(any(RegisterRequest.class));
+        verify(notificationServiceClient, times(1)).save(any());
+        verify(userServiceClient, times(1)).internalHardDeleteUserById("user-456");
+    }
+
+    @Test
+    @DisplayName("Orchestration: user-service 成功但 notification 失败且回滚也失败时返回明确错误")
+    void rollbackFailure_shouldReturnClearError() throws Exception {
+        RegisterRequest request = new RegisterRequest();
+        request.setUsername("rollbackfail");
+        request.setPassword("Password123");
+        request.setEmail("rollback@example.com");
+
+        RegisterDto registerDto = RegisterDto.builder()
+                .id("user-789")
+                .username("rollbackfail")
+                .email("rollback@example.com")
+                .build();
+
+        when(userServiceClient.save(any(RegisterRequest.class)))
+                .thenReturn(ResponseEntity.ok(registerDto));
+        when(notificationServiceClient.save(any()))
+                .thenThrow(GenericErrorResponse.builder()
+                        .httpStatus(HttpStatus.SERVICE_UNAVAILABLE)
+                        .message("Notification service unavailable")
+                        .build());
+        when(userServiceClient.internalHardDeleteUserById("user-789"))
+                .thenThrow(GenericErrorResponse.builder()
+                        .httpStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .message("Rollback failed")
+                        .build());
+
+        mockMvc.perform(post("/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isInternalServerError());
+
+        verify(userServiceClient, times(1)).save(any(RegisterRequest.class));
+        verify(notificationServiceClient, times(1)).save(any());
+        verify(userServiceClient, times(1)).internalHardDeleteUserById("user-789");
     }
 
     @Test
@@ -211,6 +294,8 @@ class AuthRegistrationExceptionTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isServiceUnavailable());
+
+        verify(userServiceClient, never()).internalHardDeleteUserById(anyString());
     }
 
     @Test

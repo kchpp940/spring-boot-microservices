@@ -1,6 +1,7 @@
 package com.safalifter.authservice.request;
 
 import lombok.Getter;
+import lombok.Setter;
 
 import javax.validation.constraints.Email;
 import javax.validation.constraints.NotBlank;
@@ -9,6 +10,7 @@ import javax.validation.constraints.Pattern;
 import javax.validation.constraints.Size;
 
 @Getter
+@Setter
 public class RegisterRequest {
     @NotBlank(message = "Username is required")
     @Size(min = 6, message = "Username must be at least 6 characters")

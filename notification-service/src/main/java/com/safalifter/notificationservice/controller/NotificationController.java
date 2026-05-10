@@ -1,13 +1,11 @@
 package com.safalifter.notificationservice.controller;
 
 import com.safalifter.notificationservice.model.Notification;
+import com.safalifter.notificationservice.request.SendNotificationRequest;
 import com.safalifter.notificationservice.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
@@ -16,6 +14,12 @@ import java.util.List;
 @RequiredArgsConstructor
 public class NotificationController {
     private final NotificationService notificationService;
+
+    @PostMapping("/save")
+    public ResponseEntity<Void> save(@RequestBody SendNotificationRequest request) {
+        notificationService.save(request);
+        return ResponseEntity.ok().build();
+    }
 
     @GetMapping("/getAllByUserId/{userId}")
     public ResponseEntity<List<Notification>> getAllByUserId(@PathVariable String userId) {

@@ -44,6 +44,7 @@ public class UserService {
                 .email(request.getEmail())
                 .role(Role.USER)
                 .active(Active.ACTIVE)
+                .userDetails(new UserDetails())
                 .notificationPreferences(new NotificationPreferences())
                 .build();
         return userRepository.save(toSave);
@@ -142,6 +143,23 @@ public class UserService {
                 safeUnbindAndDeleteProfilePicture(id, profilePicture);
             } catch (Exception e) {
                 log.warn("Failed to cleanup profile picture for user: {}", id, e);
+            }
+        }
+    }
+
+    public void hardDeleteUserById(String id) {
+        User toDelete = findUserById(id);
+        String profilePicture = toDelete.getUserDetails() != null
+                ? toDelete.getUserDetails().getProfilePicture()
+                : null;
+        userRepository.delete(toDelete);
+        log.info("User hard deleted: {}", id);
+
+        if (profilePicture != null && !profilePicture.trim().isEmpty()) {
+            try {
+                safeUnbindAndDeleteProfilePicture(id, profilePicture);
+            } catch (Exception e) {
+                log.warn("Failed to cleanup profile picture for hard-deleted user: {}", id, e);
             }
         }
     }

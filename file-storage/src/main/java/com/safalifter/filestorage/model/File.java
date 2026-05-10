@@ -16,4 +16,7 @@ public class File {
     private String id;
     private String type;
     private String filePath;
+
+    @Builder.Default
+    private Integer referenceCount = 0;
 }

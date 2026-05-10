@@ -17,9 +17,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.modelmapper.ModelMapper;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -29,6 +32,8 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final FileStorageClient fileStorageClient;
     private final ModelMapper modelMapper;
+
+    private static final String ENTITY_TYPE_USER = "user";
 
     public User saveUser(RegisterRequest request) {
         checkForDuplicateUsername(request.getUsername());
@@ -72,19 +77,73 @@ public class UserService {
         return findUserByUsername(username);
     }
 
+    @Transactional
     public User updateUserById(UserUpdateRequest request, MultipartFile file) {
         User toUpdate = findUserById(request.getId());
+        
+        String oldProfilePicture = toUpdate.getUserDetails() != null 
+                ? toUpdate.getUserDetails().getProfilePicture() 
+                : null;
+        String newProfilePicture = null;
+        boolean newImageBound = false;
 
-        request.setUserDetails(updateUserDetails(toUpdate.getUserDetails(), request.getUserDetails(), file));
-        modelMapper.map(request, toUpdate);
+        try {
+            if (file != null) {
+                newProfilePicture = fileStorageClient.uploadImageToFIleSystem(file).getBody();
+                if (newProfilePicture != null) {
+                    bindNewProfilePicture(toUpdate.getId(), newProfilePicture);
+                    newImageBound = true;
+                }
+            }
 
-        return userRepository.save(toUpdate);
+            request.setUserDetails(updateUserDetails(toUpdate.getUserDetails(), request.getUserDetails(), newProfilePicture));
+            modelMapper.map(request, toUpdate);
+
+            User savedUser = userRepository.save(toUpdate);
+
+            if (file != null && newProfilePicture != null && oldProfilePicture != null 
+                    && !oldProfilePicture.trim().isEmpty() && !oldProfilePicture.equals(newProfilePicture)) {
+                try {
+                    safeUnbindAndDeleteProfilePicture(toUpdate.getId(), oldProfilePicture);
+                } catch (Exception e) {
+                    log.warn("Failed to unbind old profile picture after update for user: {}", toUpdate.getId(), e);
+                }
+            }
+
+            return savedUser;
+        } catch (Exception e) {
+            if (newProfilePicture != null) {
+                if (newImageBound) {
+                    try {
+                        safeUnbindProfilePicture(toUpdate.getId(), newProfilePicture);
+                    } catch (Exception ex) {
+                        log.warn("Failed to rollback bind for new profile picture: {}", newProfilePicture, ex);
+                    }
+                }
+                rollbackUploadedFile(newProfilePicture);
+            }
+            throw e;
+        }
     }
 
+    @Transactional
     public void deleteUserById(String id) {
         User toDelete = findUserById(id);
+        
+        String profilePicture = toDelete.getUserDetails() != null 
+                ? toDelete.getUserDetails().getProfilePicture() 
+                : null;
+
         toDelete.setActive(Active.INACTIVE);
         userRepository.save(toDelete);
+
+        if (profilePicture != null && !profilePicture.trim().isEmpty()) {
+            try {
+                safeUnbindAndDeleteProfilePicture(id, profilePicture);
+            } catch (Exception e) {
+                log.warn("Failed to cleanup profile picture for user: {}", id, e);
+            }
+        }
     }
 
     public NotificationPreferences getNotificationPreferences(String userId) {
@@ -127,22 +186,89 @@ public class UserService {
                 .orElseThrow(() -> new NotFoundException("User not found"));
     }
 
-    private UserDetails updateUserDetails(UserDetails toUpdate, UserDetails request, MultipartFile file) {
+    private UserDetails updateUserDetails(UserDetails toUpdate, UserDetails request, String newProfilePicture) {
         toUpdate = toUpdate == null ? new UserDetails() : toUpdate;
 
-        if (file != null) {
-            String oldProfilePicture = toUpdate.getProfilePicture();
-            String newProfilePicture = fileStorageClient.uploadImageToFIleSystem(file).getBody();
-
-            if (newProfilePicture != null) {
-                toUpdate.setProfilePicture(newProfilePicture);
-                safeDeleteFile(oldProfilePicture);
-            }
+        if (newProfilePicture != null) {
+            toUpdate.setProfilePicture(newProfilePicture);
         }
 
         modelMapper.map(request, toUpdate);
 
         return toUpdate;
+    }
+
+    private void safeUnbindProfilePicture(String userId, String fileId) {
+        if (fileId == null || fileId.trim().isEmpty()) {
+            return;
+        }
+
+        try {
+            Map<String, String> unbindRequest = new HashMap<>();
+            unbindRequest.put("fileId", fileId);
+            unbindRequest.put("entityType", ENTITY_TYPE_USER);
+            unbindRequest.put("entityId", userId);
+            fileStorageClient.unbindReference(unbindRequest);
+            log.info("Successfully unbound profile picture reference: {} for user: {}", fileId, userId);
+        } catch (Exception e) {
+            log.warn("Failed to unbind profile picture: {} for user: {}", fileId, userId, e);
+        }
+    }
+
+    private void bindNewProfilePicture(String userId, String fileId) {
+        try {
+            Map<String, String> bindRequest = new HashMap<>();
+            bindRequest.put("fileId", fileId);
+            bindRequest.put("entityType", ENTITY_TYPE_USER);
+            bindRequest.put("entityId", userId);
+            fileStorageClient.bindReference(bindRequest);
+            log.info("Successfully bound profile picture reference for user: {}", userId);
+        } catch (Exception e) {
+            log.error("Failed to bind profile picture reference for user: {}", userId, e);
+            throw e;
+        }
+    }
+
+    private void safeUnbindAndDeleteProfilePicture(String userId, String fileId) {
+        if (fileId == null || fileId.trim().isEmpty()) {
+            return;
+        }
+
+        try {
+            Map<String, String> unbindRequest = new HashMap<>();
+            unbindRequest.put("fileId", fileId);
+            unbindRequest.put("entityType", ENTITY_TYPE_USER);
+            unbindRequest.put("entityId", userId);
+            
+            var response = fileStorageClient.unbindReference(unbindRequest);
+            Map<String, Object> body = response.getBody();
+            
+            if (body != null && Boolean.TRUE.equals(body.get("unbound"))) {
+                Integer newCount = (Integer) body.get("referenceCount");
+                if (newCount != null && newCount == 0) {
+                    try {
+                        fileStorageClient.deleteImageFromFileSystem(fileId);
+                        log.info("Successfully deleted profile picture for user: {}", userId);
+                    } catch (Exception e) {
+                        log.warn("Failed to delete profile picture after unbind for user: {}", userId, e);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to unbind profile picture for user: {}", userId, e);
+        }
+    }
+
+    private void rollbackUploadedFile(String fileId) {
+        if (fileId == null || fileId.trim().isEmpty()) {
+            return;
+        }
+        try {
+            fileStorageClient.deleteImageFromFileSystem(fileId);
+            log.info("Rolled back uploaded file: {}", fileId);
+        } catch (Exception e) {
+            log.warn("Failed to rollback uploaded file: {}", fileId, e);
+        }
     }
 
     private void safeDeleteFile(String fileId) {

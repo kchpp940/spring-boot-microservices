@@ -1,5 +1,7 @@
 package com.safalifter.authservice.exc;
 
+import com.safalifter.authservice.orchestration.exception.RegistrationBusinessException;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -14,6 +16,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 import java.util.HashMap;
 import java.util.Map;
 
+@Slf4j
 @RestControllerAdvice
 public class GeneralExceptionHandler extends ResponseEntityExceptionHandler {
 
@@ -33,11 +36,14 @@ public class GeneralExceptionHandler extends ResponseEntityExceptionHandler {
         });
         return ResponseEntity.badRequest().body(errors);
     }
-    @ExceptionHandler(Exception.class)
-    public final ResponseEntity<?> handleAllException(Exception ex) {
+
+    @ExceptionHandler(RegistrationBusinessException.class)
+    public ResponseEntity<?> handleRegistrationBusinessException(RegistrationBusinessException exception) {
+        log.info("Registration business exception: {}", exception.getBusinessError().getMessage());
+        GenericErrorResponse businessError = exception.getBusinessError();
         Map<String, String> errors = new HashMap<>();
-        errors.put("error", ex.getMessage());
-        return new ResponseEntity<>(errors, HttpStatus.BAD_REQUEST);
+        errors.put("error", businessError.getMessage());
+        return new ResponseEntity<>(errors, businessError.getHttpStatus());
     }
 
     @ExceptionHandler(GenericErrorResponse.class)
@@ -57,5 +63,13 @@ public class GeneralExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(ValidationException.class)
     public ResponseEntity<?> validationException(ValidationException exception) {
         return ResponseEntity.badRequest().body(exception.getValidationErrors());
+    }
+
+    @ExceptionHandler(Exception.class)
+    public final ResponseEntity<?> handleAllException(Exception ex) {
+        log.error("Unhandled exception", ex);
+        Map<String, String> errors = new HashMap<>();
+        errors.put("error", ex.getMessage() != null ? ex.getMessage() : "Internal server error");
+        return new ResponseEntity<>(errors, HttpStatus.INTERNAL_SERVER_ERROR);
     }
 }

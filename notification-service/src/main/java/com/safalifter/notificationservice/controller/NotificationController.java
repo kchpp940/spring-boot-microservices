@@ -21,4 +21,9 @@ public class NotificationController {
     public ResponseEntity<List<Notification>> getAllByUserId(@PathVariable String userId) {
         return ResponseEntity.ok(notificationService.getAllByUserId(userId));
     }
+
+    @GetMapping("/getAllByOfferId/{offerId}")
+    public ResponseEntity<List<Notification>> getAllByOfferId(@PathVariable String offerId) {
+        return ResponseEntity.ok(notificationService.getAllByOfferId(offerId));
+    }
 }

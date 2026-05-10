@@ -28,4 +28,8 @@ public class NotificationService {
     public List<Notification> getAllByUserId(String id) {
         return notificationRepository.findAllByUserIdOrderByCreationTimestampDesc(id);
     }
+
+    public List<Notification> getAllByOfferId(String offerId) {
+        return notificationRepository.findAllByOfferIdOrderByCreationTimestampDesc(offerId);
+    }
 }

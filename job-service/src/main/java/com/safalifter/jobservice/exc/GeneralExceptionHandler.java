@@ -1,9 +1,11 @@
 package com.safalifter.jobservice.exc;
 
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.lang.NonNull;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -64,10 +66,17 @@ public class GeneralExceptionHandler extends ResponseEntityExceptionHandler {
         return new ResponseEntity<>(errors, HttpStatus.FORBIDDEN);
     }
 
-    @ExceptionHandler(DuplicateFavoriteException.class)
-    public ResponseEntity<?> duplicateFavoriteException(DuplicateFavoriteException exception) {
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<?> optimisticLockingFailureException(ObjectOptimisticLockingFailureException exception) {
         Map<String, String> errors = new HashMap<>();
-        errors.put("error", exception.getMessage());
+        errors.put("error", "Concurrent update detected. Please refresh and try again.");
+        return new ResponseEntity<>(errors, HttpStatus.CONFLICT);
+    }
+
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<?> optimisticLockingFailureException(OptimisticLockingFailureException exception) {
+        Map<String, String> errors = new HashMap<>();
+        errors.put("error", "Concurrent update detected. Please refresh and try again.");
         return new ResponseEntity<>(errors, HttpStatus.CONFLICT);
     }
 }

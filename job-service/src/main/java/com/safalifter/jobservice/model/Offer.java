@@ -16,7 +16,11 @@ public class Offer extends BaseEntity {
     private int offeredPrice;
 
     @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
     private OfferStatus status;
+
+    @Version
+    private Long version;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "advert_id")

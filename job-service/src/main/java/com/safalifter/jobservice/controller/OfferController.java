@@ -2,7 +2,6 @@ package com.safalifter.jobservice.controller;
 
 import com.safalifter.jobservice.dto.OfferDto;
 import com.safalifter.jobservice.request.offer.MakeAnOfferRequest;
-import com.safalifter.jobservice.request.offer.OfferUpdateRequest;
 import com.safalifter.jobservice.service.OfferService;
 import lombok.RequiredArgsConstructor;
 import org.modelmapper.ModelMapper;
@@ -44,10 +43,28 @@ public class OfferController {
                 .map(offer -> modelMapper.map(offer, OfferDto.class)).toList());
     }
 
-    @PutMapping("/update")
-    @PreAuthorize("hasRole('ADMIN') or @offerService.authorizeCheck(#request.id, principal)")
-    public ResponseEntity<OfferDto> updateOfferById(@Valid @RequestBody OfferUpdateRequest request) {
-        return ResponseEntity.ok(modelMapper.map(offerService.updateOfferById(request), OfferDto.class));
+    @PostMapping("/accept/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @offerService.isAdvertOwner(#id, principal)")
+    public ResponseEntity<OfferDto> acceptOffer(@PathVariable String id) {
+        return ResponseEntity.ok(modelMapper.map(offerService.acceptOffer(id), OfferDto.class));
+    }
+
+    @PostMapping("/reject/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @offerService.isAdvertOwner(#id, principal)")
+    public ResponseEntity<OfferDto> rejectOffer(@PathVariable String id) {
+        return ResponseEntity.ok(modelMapper.map(offerService.rejectOffer(id), OfferDto.class));
+    }
+
+    @PostMapping("/withdraw/{id}")
+    @PreAuthorize("hasRole('ADMIN') or @offerService.authorizeCheck(#id, principal)")
+    public ResponseEntity<OfferDto> withdrawOffer(@PathVariable String id) {
+        return ResponseEntity.ok(modelMapper.map(offerService.withdrawOffer(id), OfferDto.class));
+    }
+
+    @PostMapping("/expire/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<OfferDto> expireOffer(@PathVariable String id) {
+        return ResponseEntity.ok(modelMapper.map(offerService.expireOffer(id), OfferDto.class));
     }
 
     @DeleteMapping("/deleteOfferById/{id}")

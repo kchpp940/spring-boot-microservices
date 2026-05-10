@@ -1,5 +1,7 @@
 package com.safalifter.userservice.client;
 
+import com.safalifter.userservice.dto.FileReferenceRequest;
+import com.safalifter.userservice.dto.FileReferenceResponse;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -17,10 +19,10 @@ public interface FileStorageClient {
     ResponseEntity<Void> deleteImageFromFileSystem(@PathVariable String id);
 
     @PostMapping("/bind-reference")
-    ResponseEntity<Map<String, Object>> bindReference(@RequestBody Map<String, String> request);
+    ResponseEntity<FileReferenceResponse> bindReference(@RequestBody FileReferenceRequest request);
 
     @PostMapping("/unbind-reference")
-    ResponseEntity<Map<String, Object>> unbindReference(@RequestBody Map<String, String> request);
+    ResponseEntity<FileReferenceResponse> unbindReference(@RequestBody FileReferenceRequest request);
 
     @DeleteMapping("/unbind-all/{entityType}/{entityId}")
     ResponseEntity<Map<String, String>> unbindAllReferences(

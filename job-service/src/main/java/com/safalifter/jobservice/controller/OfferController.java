@@ -44,19 +44,19 @@ public class OfferController {
     }
 
     @PostMapping("/accept/{id}")
-    @PreAuthorize("hasRole('ADMIN') or @offerService.isAdvertOwner(#id, principal)")
+    @PreAuthorize("hasRole('ADMIN') or @offerAuthorizationService.isAdvertOwner(#id, principal)")
     public ResponseEntity<OfferDto> acceptOffer(@PathVariable String id) {
         return ResponseEntity.ok(modelMapper.map(offerService.acceptOffer(id), OfferDto.class));
     }
 
     @PostMapping("/reject/{id}")
-    @PreAuthorize("hasRole('ADMIN') or @offerService.isAdvertOwner(#id, principal)")
+    @PreAuthorize("hasRole('ADMIN') or @offerAuthorizationService.isAdvertOwner(#id, principal)")
     public ResponseEntity<OfferDto> rejectOffer(@PathVariable String id) {
         return ResponseEntity.ok(modelMapper.map(offerService.rejectOffer(id), OfferDto.class));
     }
 
     @PostMapping("/withdraw/{id}")
-    @PreAuthorize("hasRole('ADMIN') or @offerService.authorizeCheck(#id, principal)")
+    @PreAuthorize("hasRole('ADMIN') or @offerAuthorizationService.isOfferOwner(#id, principal)")
     public ResponseEntity<OfferDto> withdrawOffer(@PathVariable String id) {
         return ResponseEntity.ok(modelMapper.map(offerService.withdrawOffer(id), OfferDto.class));
     }
@@ -68,7 +68,7 @@ public class OfferController {
     }
 
     @DeleteMapping("/deleteOfferById/{id}")
-    @PreAuthorize("hasRole('ADMIN') or @offerService.authorizeCheck(#id, principal)")
+    @PreAuthorize("hasRole('ADMIN') or @offerAuthorizationService.isOfferOwner(#id, principal)")
     public ResponseEntity<Void> deleteOfferById(@PathVariable String id) {
         offerService.deleteOfferById(id);
         return ResponseEntity.ok().build();

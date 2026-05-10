@@ -1,6 +1,7 @@
 package com.safalifter.jobservice.enums;
 
 import com.safalifter.jobservice.exc.IllegalStateTransitionException;
+import com.safalifter.jobservice.model.Offer;
 
 import java.util.Collections;
 import java.util.EnumMap;
@@ -43,6 +44,55 @@ public class OfferStateMachine {
             throw new IllegalStateTransitionException(
                     String.format("Illegal state transition: %s -> %s", from, to)
             );
+        }
+    }
+
+    public static Set<OfferStatus> getAvailableTransitions(OfferStatus from) {
+        if (from == null) {
+            return Collections.emptySet();
+        }
+        return Collections.unmodifiableSet(
+                ALLOWED_TRANSITIONS.getOrDefault(from, Collections.emptySet())
+        );
+    }
+
+    public static boolean isTerminalState(OfferStatus status) {
+        return status != null && ALLOWED_TRANSITIONS.getOrDefault(status, Collections.emptySet()).isEmpty();
+    }
+
+    public static void transition(Offer offer, OfferStatus targetStatus) {
+        validateTransition(offer.getStatus(), targetStatus);
+        offer.setStatus(targetStatus);
+    }
+
+    public static TransitionResult transitionWithResult(Offer offer, OfferStatus targetStatus) {
+        OfferStatus fromStatus = offer.getStatus();
+        validateTransition(fromStatus, targetStatus);
+        offer.setStatus(targetStatus);
+        return new TransitionResult(fromStatus, targetStatus, true);
+    }
+
+    public static class TransitionResult {
+        private final OfferStatus fromStatus;
+        private final OfferStatus toStatus;
+        private final boolean success;
+
+        public TransitionResult(OfferStatus fromStatus, OfferStatus toStatus, boolean success) {
+            this.fromStatus = fromStatus;
+            this.toStatus = toStatus;
+            this.success = success;
+        }
+
+        public OfferStatus getFromStatus() {
+            return fromStatus;
+        }
+
+        public OfferStatus getToStatus() {
+            return toStatus;
+        }
+
+        public boolean isSuccess() {
+            return success;
         }
     }
 }

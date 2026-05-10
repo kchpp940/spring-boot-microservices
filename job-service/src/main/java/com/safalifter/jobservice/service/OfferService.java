@@ -3,20 +3,16 @@ package com.safalifter.jobservice.service;
 import com.safalifter.jobservice.client.UserServiceClient;
 import com.safalifter.jobservice.dto.NotificationPreferencesDto;
 import com.safalifter.jobservice.dto.UserDto;
-import com.safalifter.jobservice.enums.NotificationType;
 import com.safalifter.jobservice.enums.OfferStateMachine;
 import com.safalifter.jobservice.enums.OfferStatus;
 import com.safalifter.jobservice.exc.NotFoundException;
 import com.safalifter.jobservice.model.Advert;
 import com.safalifter.jobservice.model.Offer;
 import com.safalifter.jobservice.repository.OfferRepository;
-import com.safalifter.jobservice.request.notification.SendNotificationRequest;
 import com.safalifter.jobservice.request.offer.MakeAnOfferRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.kafka.clients.admin.NewTopic;
 import org.springframework.http.ResponseEntity;
-import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,9 +25,8 @@ import java.util.Optional;
 public class OfferService {
     private final OfferRepository offerRepository;
     private final AdvertService advertService;
-    private final UserServiceClient userServiceclient;
-    private final KafkaTemplate<String, SendNotificationRequest> kafkaTemplate;
-    private final NewTopic topic;
+    private final UserServiceClient userServiceClient;
+    private final OfferNotificationService offerNotificationService;
 
     public Offer makeAnOffer(MakeAnOfferRequest request) {
         String userId = getUserById(request.getUserId()).getId();
@@ -42,23 +37,11 @@ public class OfferService {
                 .offeredPrice(request.getOfferedPrice())
                 .status(OfferStatus.OPEN)
                 .build();
-        offerRepository.save(toSave);
+        Offer saved = offerRepository.save(toSave);
 
-        NotificationPreferencesDto prefs = getNotificationPreferences(advert.getUserId());
-        if (prefs.isEnabled(NotificationType.OFFER)) {
-            SendNotificationRequest notification = SendNotificationRequest.builder()
-                    .message("You have received an offer for your advertising.")
-                    .userId(advert.getUserId())
-                    .offerId(toSave.getId())
-                    .notificationType(NotificationType.OFFER)
-                    .build();
+        offerNotificationService.notifyAdvertOwnerOfNewOffer(saved);
 
-            kafkaTemplate.send(topic.name(), notification);
-        } else {
-            log.info("User {} has disabled OFFER notifications, skipping send", advert.getUserId());
-        }
-
-        return toSave;
+        return saved;
     }
 
     public Offer getOfferById(String id) {
@@ -76,87 +59,46 @@ public class OfferService {
     }
 
     public UserDto getUserById(String id) {
-        ResponseEntity<UserDto> response = userServiceclient.getUserById(id);
+        ResponseEntity<UserDto> response = userServiceClient.getUserById(id);
         return Optional.ofNullable(response)
                 .map(ResponseEntity::getBody)
                 .orElseThrow(() -> new NotFoundException("User not found"));
     }
 
-    public NotificationPreferencesDto getNotificationPreferences(String userId) {
-        ResponseEntity<NotificationPreferencesDto> response = userServiceclient.getNotificationPreferences(userId);
-        if (response != null && response.getBody() != null) {
-            return response.getBody();
-        }
-        log.warn("Failed to get notification preferences for userId: {}, using default", userId);
-        return NotificationPreferencesDto.createDefault(userId);
-    }
-
     @Transactional
     public Offer acceptOffer(String offerId) {
         Offer offer = findOfferById(offerId);
-        OfferStateMachine.validateTransition(offer.getStatus(), OfferStatus.ACCEPTED);
-        offer.setStatus(OfferStatus.ACCEPTED);
+        OfferStateMachine.transition(offer, OfferStatus.ACCEPTED);
         Offer saved = offerRepository.save(offer);
-        sendOfferStatusNotification(saved, "Your offer has been accepted.");
+        offerNotificationService.notifyOfferMakerOfAcceptance(saved);
         return saved;
     }
 
     @Transactional
     public Offer rejectOffer(String offerId) {
         Offer offer = findOfferById(offerId);
-        OfferStateMachine.validateTransition(offer.getStatus(), OfferStatus.REJECTED);
-        offer.setStatus(OfferStatus.REJECTED);
+        OfferStateMachine.transition(offer, OfferStatus.REJECTED);
         Offer saved = offerRepository.save(offer);
-        sendOfferStatusNotification(saved, "Your offer has been rejected.");
+        offerNotificationService.notifyOfferMakerOfRejection(saved);
         return saved;
     }
 
     @Transactional
     public Offer withdrawOffer(String offerId) {
         Offer offer = findOfferById(offerId);
-        OfferStateMachine.validateTransition(offer.getStatus(), OfferStatus.WITHDRAWN);
-        offer.setStatus(OfferStatus.WITHDRAWN);
+        OfferStateMachine.transition(offer, OfferStatus.WITHDRAWN);
         Offer saved = offerRepository.save(offer);
-        sendOfferStatusNotificationToAdvertOwner(saved, "An offer has been withdrawn.");
+        offerNotificationService.notifyAdvertOwnerOfWithdrawal(saved);
         return saved;
     }
 
     @Transactional
     public Offer expireOffer(String offerId) {
         Offer offer = findOfferById(offerId);
-        OfferStateMachine.validateTransition(offer.getStatus(), OfferStatus.EXPIRED);
-        offer.setStatus(OfferStatus.EXPIRED);
+        OfferStateMachine.transition(offer, OfferStatus.EXPIRED);
         Offer saved = offerRepository.save(offer);
-        sendOfferStatusNotification(saved, "Your offer has expired.");
+        offerNotificationService.notifyOfferMakerOfExpiration(saved);
         return saved;
-    }
-
-    private void sendOfferStatusNotification(Offer offer, String message) {
-        String offerMakerUserId = offer.getUserId();
-        NotificationPreferencesDto prefs = getNotificationPreferences(offerMakerUserId);
-        if (prefs.isEnabled(NotificationType.OFFER)) {
-            SendNotificationRequest notification = SendNotificationRequest.builder()
-                    .message(message)
-                    .userId(offerMakerUserId)
-                    .offerId(offer.getId())
-                    .notificationType(NotificationType.OFFER)
-                    .build();
-            kafkaTemplate.send(topic.name(), notification);
-        }
-    }
-
-    private void sendOfferStatusNotificationToAdvertOwner(Offer offer, String message) {
-        String advertOwnerUserId = offer.getAdvert().getUserId();
-        NotificationPreferencesDto prefs = getNotificationPreferences(advertOwnerUserId);
-        if (prefs.isEnabled(NotificationType.OFFER)) {
-            SendNotificationRequest notification = SendNotificationRequest.builder()
-                    .message(message)
-                    .userId(advertOwnerUserId)
-                    .offerId(offer.getId())
-                    .notificationType(NotificationType.OFFER)
-                    .build();
-            kafkaTemplate.send(topic.name(), notification);
-        }
     }
 
     public void deleteOfferById(String id) {

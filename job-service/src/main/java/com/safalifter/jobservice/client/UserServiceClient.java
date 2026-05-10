@@ -12,6 +12,9 @@ public interface UserServiceClient {
     @GetMapping("/getUserById/{id}")
     ResponseEntity<UserDto> getUserById(@PathVariable String id);
 
+    @GetMapping("/getUserInfoByUsername/{username}")
+    ResponseEntity<UserDto> getUserInfoByUsername(@PathVariable String username);
+
     @GetMapping("/notification-preferences/{userId}")
     ResponseEntity<NotificationPreferencesDto> getNotificationPreferences(@PathVariable String userId);
 }

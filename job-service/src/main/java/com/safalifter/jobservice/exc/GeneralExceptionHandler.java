@@ -63,4 +63,11 @@ public class GeneralExceptionHandler extends ResponseEntityExceptionHandler {
         errors.put("error", exception.getMessage());
         return new ResponseEntity<>(errors, HttpStatus.FORBIDDEN);
     }
+
+    @ExceptionHandler(DuplicateFavoriteException.class)
+    public ResponseEntity<?> duplicateFavoriteException(DuplicateFavoriteException exception) {
+        Map<String, String> errors = new HashMap<>();
+        errors.put("error", exception.getMessage());
+        return new ResponseEntity<>(errors, HttpStatus.CONFLICT);
+    }
 }

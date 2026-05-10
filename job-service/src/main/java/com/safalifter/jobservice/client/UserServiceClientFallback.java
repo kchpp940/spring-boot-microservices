@@ -17,6 +17,12 @@ public class UserServiceClientFallback implements UserServiceClient {
     }
 
     @Override
+    public ResponseEntity<UserDto> getUserInfoByUsername(String username) {
+        log.warn("Fallback triggered for getUserInfoByUsername with username: {}", username);
+        return null;
+    }
+
+    @Override
     public ResponseEntity<NotificationPreferencesDto> getNotificationPreferences(String userId) {
         log.warn("Fallback triggered for getNotificationPreferences with userId: {}, returning default preferences", userId);
         return ResponseEntity.ok(NotificationPreferencesDto.createDefault(userId));

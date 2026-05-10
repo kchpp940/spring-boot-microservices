@@ -55,6 +55,11 @@ public class UserController {
         return ResponseEntity.ok(modelMapper.map(userService.getUserByUsername(username), AuthUserDto.class));
     }
 
+    @GetMapping("/getUserInfoByUsername/{username}")
+    public ResponseEntity<UserDto> getUserInfoByUsername(@PathVariable String username) {
+        return ResponseEntity.ok(modelMapper.map(userService.getUserByUsername(username), UserDto.class));
+    }
+
     @PutMapping("/update")
     @PreAuthorize("hasRole('ADMIN') or @userService.getUserById(#request.id).username == principal")
     public ResponseEntity<UserDto> updateUserById(@Valid @RequestPart UserUpdateRequest request,

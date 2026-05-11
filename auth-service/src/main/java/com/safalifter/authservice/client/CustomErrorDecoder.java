@@ -20,6 +20,12 @@ public class CustomErrorDecoder implements ErrorDecoder {
 
     @Override
     public Exception decode(String methodKey, Response response) {
+        if (response.body() == null) {
+            return GenericErrorResponse.builder()
+                    .httpStatus(HttpStatus.valueOf(response.status()))
+                    .message("Service error: " + HttpStatus.valueOf(response.status()).getReasonPhrase())
+                    .build();
+        }
         try (InputStream body = response.body().asInputStream()) {
             String bodyString = IOUtils.toString(body, StandardCharsets.UTF_8);
             Map<String, Object> errors = mapper.readValue(bodyString, Map.class);

@@ -4,29 +4,35 @@ import com.safalifter.jobservice.client.FileStorageClient;
 import com.safalifter.jobservice.client.adapter.FileStorageClientAdapter;
 import com.safalifter.jobservice.dto.FileReferenceRequest;
 import com.safalifter.jobservice.dto.FileReferenceResponse;
+import com.safalifter.jobservice.model.Category;
+import com.safalifter.jobservice.model.Job;
+import com.safalifter.jobservice.repository.JobRepository;
+import com.safalifter.jobservice.request.job.JobCreateRequest;
+import com.safalifter.jobservice.request.job.JobUpdateRequest;
 import feign.FeignException;
 import feign.Request;
 import feign.Response;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.modelmapper.ModelMapper;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Collections;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("FileReferenceCoordinator 单元测试")
-class FileReferenceCoordinatorTest {
+class FileReferenceIntegrationTest {
 
     @Mock
     private FileStorageClient fileStorageClient;
@@ -36,9 +42,53 @@ class FileReferenceCoordinatorTest {
 
     private FileReferenceCoordinator fileReferenceCoordinator;
 
+    @Mock
+    private JobRepository jobRepository;
+
+    @Mock
+    private CategoryService categoryService;
+
+    @Mock
+    private ModelMapper modelMapper;
+
+    private JobService jobService;
+
+    private Job testJob;
+    private Category testCategory;
+    private JobCreateRequest createRequest;
+    private JobUpdateRequest updateRequest;
+
     @BeforeEach
     void setUp() {
         fileReferenceCoordinator = new FileReferenceCoordinator(fileStorageClientAdapter);
+
+        testCategory = Category.builder()
+                .name("Test Category")
+                .description("Test Description")
+                .build();
+        ReflectionTestUtils.setField(testCategory, "id", "category-123");
+
+        testJob = Job.builder()
+                .name("Test Job")
+                .description("Test Job Description")
+                .category(testCategory)
+                .imageId("old-image-123")
+                .build();
+        ReflectionTestUtils.setField(testJob, "id", "job-123");
+
+        createRequest = new JobCreateRequest();
+        createRequest.setCategoryId("category-123");
+        createRequest.setName("New Job");
+        createRequest.setDescription("Description");
+        createRequest.setKeys(new String[]{"key1", "key2"});
+
+        updateRequest = new JobUpdateRequest();
+        updateRequest.setId("job-123");
+        updateRequest.setName("Updated Job");
+    }
+
+    private JobService createJobService() {
+        return new JobService(jobRepository, categoryService, modelMapper, fileReferenceCoordinator);
     }
 
     private FileReferenceResponse buildBindResponse(String fileId, String entityType, String entityId, int refCount, boolean bound) {
@@ -79,419 +129,469 @@ class FileReferenceCoordinatorTest {
         return FeignException.errorStatus("testMethod", response);
     }
 
-    @Nested
-    @DisplayName("工具方法测试")
-    class UtilityMethodTests {
+    @Test
+    @DisplayName("创建职位成功：上传图片 -> 保存业务数据 -> 绑定引用")
+    void testCreateJob_SuccessFlow() {
+        MultipartFile mockFile = mock(MultipartFile.class);
+        String newImageId = "new-image-456";
 
-        @Test
-        @DisplayName("bindReference：空参数时返回 null，不调用底层服务")
-        void testBindReference_NullFileId_ReturnsNull() {
-            FileReferenceResponse result = fileReferenceCoordinator.bindReference("job", "entity-123", null);
-            assertNull(result);
+        when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenReturn(ResponseEntity.ok(newImageId));
+        when(categoryService.getCategoryById("category-123")).thenReturn(testCategory);
+        when(jobRepository.save(any(Job.class))).thenAnswer(invocation -> {
+            Job saved = invocation.getArgument(0);
+            ReflectionTestUtils.setField(saved, "id", "job-123");
+            return saved;
+        });
+        when(fileStorageClient.bindReference(any(FileReferenceRequest.class))).thenReturn(
+                ResponseEntity.ok(buildBindResponse(newImageId, "job", "job-123", 1, true))
+        );
 
-            result = fileReferenceCoordinator.bindReference(null, "entity-123", "file-123");
-            assertNull(result);
+        jobService = createJobService();
+        Job result = jobService.createJob(createRequest, mockFile);
 
-            result = fileReferenceCoordinator.bindReference("job", null, "file-123");
-            assertNull(result);
-
-            verify(fileStorageClient, never()).bindReference(any(FileReferenceRequest.class));
-        }
-
-        @Test
-        @DisplayName("bindReference：正常调用时返回响应")
-        void testBindReference_Success_ReturnsResponse() {
-            when(fileStorageClient.bindReference(any(FileReferenceRequest.class))).thenReturn(
-                    ResponseEntity.ok(buildBindResponse("file-123", "job", "entity-123", 1, true))
-            );
-
-            FileReferenceResponse result = fileReferenceCoordinator.bindReference("job", "entity-123", "file-123");
-
-            assertNotNull(result);
-            assertTrue(result.isBound());
-            assertEquals(1, result.getReferenceCount());
-        }
-
-        @Test
-        @DisplayName("bindReference：异常时抛出原始异常")
-        void testBindReference_Exception_Throws() {
-            when(fileStorageClient.bindReference(any(FileReferenceRequest.class))).thenThrow(
-                    createFeignException(500, "Server error")
-            );
-
-            assertThrows(FeignException.class,
-                    () -> fileReferenceCoordinator.bindReference("job", "entity-123", "file-123"));
-        }
-
-        @Test
-        @DisplayName("safeUnbindReference：异常时返回 null 不抛出")
-        void testSafeUnbindReference_Exception_ReturnsNull() {
-            when(fileStorageClient.unbindReference(any(FileReferenceRequest.class))).thenThrow(new RuntimeException("Unbind failed"));
-
-            FileReferenceResponse result = fileReferenceCoordinator.safeUnbindReference("job", "entity-123", "file-123");
-            assertNull(result);
-        }
-
-        @Test
-        @DisplayName("safeUnbindReference：404 时返回 null 不抛出")
-        void testSafeUnbindReference_404_ReturnsNull() {
-            when(fileStorageClient.unbindReference(any(FileReferenceRequest.class))).thenThrow(
-                    createFeignException(404, "Not found")
-            );
-
-            FileReferenceResponse result = fileReferenceCoordinator.safeUnbindReference("job", "entity-123", "file-123");
-            assertNull(result);
-        }
-
-        @Test
-        @DisplayName("safeDeleteFile：异常时不抛出")
-        void testSafeDeleteFile_Exception_NoThrow() {
-            when(fileStorageClient.deleteImageFromFileSystem("file-123")).thenThrow(new RuntimeException("Delete failed"));
-            assertDoesNotThrow(() -> fileReferenceCoordinator.safeDeleteFile("file-123"));
-        }
-
-        @Test
-        @DisplayName("safeUnbindAndDeleteIfNeeded：referenceCount=0 时删除文件")
-        void testSafeUnbindAndDeleteIfNeeded_RefCountZero_DeletesFile() {
-            when(fileStorageClient.unbindReference(any(FileReferenceRequest.class))).thenReturn(
-                    ResponseEntity.ok(buildUnbindResponse("file-123", "job", "entity-123", 0, true))
-            );
-
-            fileReferenceCoordinator.safeUnbindAndDeleteIfNeeded("job", "entity-123", "file-123");
-
-            verify(fileStorageClient).deleteImageFromFileSystem("file-123");
-        }
-
-        @Test
-        @DisplayName("safeUnbindAndDeleteIfNeeded：referenceCount>0 时不删除文件")
-        void testSafeUnbindAndDeleteIfNeeded_RefCountPositive_NotDeletesFile() {
-            when(fileStorageClient.unbindReference(any(FileReferenceRequest.class))).thenReturn(
-                    ResponseEntity.ok(buildUnbindResponse("file-123", "job", "entity-123", 2, true))
-            );
-
-            fileReferenceCoordinator.safeUnbindAndDeleteIfNeeded("job", "entity-123", "file-123");
-
-            verify(fileStorageClient, never()).deleteImageFromFileSystem(anyString());
-        }
+        assertNotNull(result);
+        assertEquals(newImageId, result.getImageId());
+        verify(fileStorageClient).uploadImageToFIleSystem(mockFile);
+        verify(jobRepository).save(any(Job.class));
+        verify(fileStorageClient).bindReference(any(FileReferenceRequest.class));
+        verify(fileStorageClient, never()).unbindReference(any(FileReferenceRequest.class));
+        verify(fileStorageClient, never()).deleteImageFromFileSystem(anyString());
     }
 
-    @Nested
-    @DisplayName("核心流程测试 - executeCreate")
-    class ExecuteCreateTests {
+    @Test
+    @DisplayName("创建职位成功：无图片时跳过上传和绑定")
+    void testCreateJob_SuccessWithoutImage() {
+        when(categoryService.getCategoryById("category-123")).thenReturn(testCategory);
+        when(jobRepository.save(any(Job.class))).thenAnswer(invocation -> {
+            Job saved = invocation.getArgument(0);
+            ReflectionTestUtils.setField(saved, "id", "job-123");
+            return saved;
+        });
 
-        @Test
-        @DisplayName("executeCreate：成功流程 - 上传 -> 创建 -> 绑定")
-        void testExecuteCreate_Success() {
-            MultipartFile mockFile = mock(MultipartFile.class);
-            String fileId = "file-123";
-            String entityId = "entity-123";
+        jobService = createJobService();
+        Job result = jobService.createJob(createRequest, null);
 
-            when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenReturn(ResponseEntity.ok(fileId));
-            when(fileStorageClient.bindReference(any(FileReferenceRequest.class))).thenReturn(
-                    ResponseEntity.ok(buildBindResponse(fileId, "job", entityId, 1, true))
-            );
-
-            FileReferenceCoordinator.EntityCreator<String> creator = fileIdParam -> "created:" + fileIdParam;
-            FileReferenceCoordinator.EntityIdGetter<String> idGetter = entity -> entityId;
-
-            String result = fileReferenceCoordinator.executeCreate("job", mockFile, creator, idGetter);
-
-            assertEquals("created:file-123", result);
-            verify(fileStorageClient).uploadImageToFIleSystem(mockFile);
-            verify(fileStorageClient).bindReference(any(FileReferenceRequest.class));
-            verify(fileStorageClient, never()).unbindReference(any(FileReferenceRequest.class));
-            verify(fileStorageClient, never()).deleteImageFromFileSystem(anyString());
-        }
-
-        @Test
-        @DisplayName("executeCreate：无文件时跳过上传和绑定")
-        void testExecuteCreate_NoFile_SkipsUploadAndBind() {
-            String entityId = "entity-123";
-
-            FileReferenceCoordinator.EntityCreator<String> creator = fileIdParam -> "created:" + fileIdParam;
-            FileReferenceCoordinator.EntityIdGetter<String> idGetter = entity -> entityId;
-
-            String result = fileReferenceCoordinator.executeCreate("job", null, creator, idGetter);
-
-            assertEquals("created:null", result);
-            verify(fileStorageClient, never()).uploadImageToFIleSystem(any(MultipartFile.class));
-            verify(fileStorageClient, never()).bindReference(any(FileReferenceRequest.class));
-        }
-
-        @Test
-        @DisplayName("executeCreate：上传失败时不创建实体")
-        void testExecuteCreate_UploadFails_NoEntityCreation() {
-            MultipartFile mockFile = mock(MultipartFile.class);
-            when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenThrow(
-                    createFeignException(500, "Upload failed")
-            );
-
-            FileReferenceCoordinator.EntityCreator<String> creator = fileIdParam -> "created:" + fileIdParam;
-            FileReferenceCoordinator.EntityIdGetter<String> idGetter = entity -> "entity-123";
-
-            assertThrows(FeignException.class,
-                    () -> fileReferenceCoordinator.executeCreate("job", mockFile, creator, idGetter));
-
-            verify(fileStorageClient, never()).bindReference(any(FileReferenceRequest.class));
-            verify(fileStorageClient, never()).deleteImageFromFileSystem(anyString());
-        }
-
-        @Test
-        @DisplayName("executeCreate：创建实体失败时删除上传的文件")
-        void testExecuteCreate_CreatorFails_DeletesUploadedFile() {
-            MultipartFile mockFile = mock(MultipartFile.class);
-            String fileId = "file-123";
-
-            when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenReturn(ResponseEntity.ok(fileId));
-
-            FileReferenceCoordinator.EntityCreator<String> creator = fileIdParam -> {
-                throw new RuntimeException("Creator failed");
-            };
-            FileReferenceCoordinator.EntityIdGetter<String> idGetter = entity -> "entity-123";
-
-            assertThrows(RuntimeException.class,
-                    () -> fileReferenceCoordinator.executeCreate("job", mockFile, creator, idGetter));
-
-            verify(fileStorageClient, never()).bindReference(any(FileReferenceRequest.class));
-            verify(fileStorageClient).deleteImageFromFileSystem(fileId);
-        }
-
-        @Test
-        @DisplayName("executeCreate：绑定失败时只删除，不调用解绑（bound=false）")
-        void testExecuteCreate_BindFails_OnlyDeletesNoUnbind() {
-            MultipartFile mockFile = mock(MultipartFile.class);
-            String fileId = "file-123";
-            String entityId = "entity-123";
-
-            when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenReturn(ResponseEntity.ok(fileId));
-            when(fileStorageClient.bindReference(any(FileReferenceRequest.class))).thenThrow(
-                    createFeignException(500, "Bind failed")
-            );
-
-            FileReferenceCoordinator.EntityCreator<String> creator = fileIdParam -> "created:" + fileIdParam;
-            FileReferenceCoordinator.EntityIdGetter<String> idGetter = entity -> entityId;
-
-            assertThrows(FeignException.class,
-                    () -> fileReferenceCoordinator.executeCreate("job", mockFile, creator, idGetter));
-
-            verify(fileStorageClient, never()).unbindReference(any(FileReferenceRequest.class));
-            verify(fileStorageClient).deleteImageFromFileSystem(fileId);
-        }
+        assertNotNull(result);
+        assertNull(result.getImageId());
+        verify(fileStorageClient, never()).uploadImageToFIleSystem(any(MultipartFile.class));
+        verify(fileStorageClient, never()).bindReference(any(FileReferenceRequest.class));
     }
 
-    @Nested
-    @DisplayName("核心流程测试 - executeUpdate")
-    class ExecuteUpdateTests {
+    @Test
+    @DisplayName("创建职位失败：上传图片后数据库保存失败，应删除上传的图片")
+    void testCreateJob_FailAfterUpload_DeletesUploadedFile() {
+        MultipartFile mockFile = mock(MultipartFile.class);
+        String newImageId = "new-image-456";
 
-        @Test
-        @DisplayName("executeUpdate：成功流程 - 上传 -> 更新 -> 绑定新 -> 清理旧")
-        void testExecuteUpdate_SuccessWithReplacement() {
-            MultipartFile mockFile = mock(MultipartFile.class);
-            String newFileId = "new-file-123";
-            String oldFileId = "old-file-123";
-            String entityId = "entity-123";
+        when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenReturn(ResponseEntity.ok(newImageId));
+        when(categoryService.getCategoryById("category-123")).thenReturn(testCategory);
+        when(jobRepository.save(any(Job.class))).thenThrow(new RuntimeException("Database save failed"));
 
-            when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenReturn(ResponseEntity.ok(newFileId));
-            when(fileStorageClient.bindReference(any(FileReferenceRequest.class))).thenReturn(
-                    ResponseEntity.ok(buildBindResponse(newFileId, "job", entityId, 1, true))
-            );
-            when(fileStorageClient.unbindReference(any(FileReferenceRequest.class))).thenReturn(
-                    ResponseEntity.ok(buildUnbindResponse(oldFileId, "job", entityId, 0, true))
-            );
-            when(fileStorageClient.deleteImageFromFileSystem(oldFileId)).thenReturn(ResponseEntity.ok().build());
+        jobService = createJobService();
+        assertThrows(RuntimeException.class, () -> jobService.createJob(createRequest, mockFile));
 
-            FileReferenceCoordinator.EntityUpdater<String> updater = newFileIdParam -> "updated:" + newFileIdParam;
-            FileReferenceCoordinator.EntityIdGetter<String> idGetter = entity -> entityId;
-
-            String result = fileReferenceCoordinator.executeUpdate("job", oldFileId, mockFile, updater, idGetter);
-
-            assertEquals("updated:new-file-123", result);
-            verify(fileStorageClient).uploadImageToFIleSystem(mockFile);
-            verify(fileStorageClient).bindReference(any(FileReferenceRequest.class));
-            verify(fileStorageClient).unbindReference(any(FileReferenceRequest.class));
-            verify(fileStorageClient).deleteImageFromFileSystem(oldFileId);
-        }
-
-        @Test
-        @DisplayName("executeUpdate：无新文件时跳过上传，不清理旧引用")
-        void testExecuteUpdate_NoNewFile_SkipsUpload() {
-            String oldFileId = "old-file-123";
-            String entityId = "entity-123";
-
-            FileReferenceCoordinator.EntityUpdater<String> updater = newFileIdParam -> "updated:" + newFileIdParam;
-            FileReferenceCoordinator.EntityIdGetter<String> idGetter = entity -> entityId;
-
-            String result = fileReferenceCoordinator.executeUpdate("job", oldFileId, null, updater, idGetter);
-
-            assertEquals("updated:null", result);
-            verify(fileStorageClient, never()).uploadImageToFIleSystem(any(MultipartFile.class));
-            verify(fileStorageClient, never()).bindReference(any(FileReferenceRequest.class));
-            verify(fileStorageClient, never()).unbindReference(any(FileReferenceRequest.class));
-            verify(fileStorageClient, never()).deleteImageFromFileSystem(anyString());
-        }
-
-        @Test
-        @DisplayName("executeUpdate：上传失败时不更新实体")
-        void testExecuteUpdate_UploadFails_NoUpdate() {
-            MultipartFile mockFile = mock(MultipartFile.class);
-            String oldFileId = "old-file-123";
-
-            when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenThrow(
-                    createFeignException(500, "Upload failed")
-            );
-
-            FileReferenceCoordinator.EntityUpdater<String> updater = newFileIdParam -> "updated:" + newFileIdParam;
-            FileReferenceCoordinator.EntityIdGetter<String> idGetter = entity -> "entity-123";
-
-            assertThrows(FeignException.class,
-                    () -> fileReferenceCoordinator.executeUpdate("job", oldFileId, mockFile, updater, idGetter));
-
-            verify(fileStorageClient, never()).bindReference(any(FileReferenceRequest.class));
-            verify(fileStorageClient, never()).unbindReference(any(FileReferenceRequest.class));
-            verify(fileStorageClient, never()).deleteImageFromFileSystem(oldFileId);
-        }
-
-        @Test
-        @DisplayName("executeUpdate：绑定新引用失败时只回滚新引用")
-        void testExecuteUpdate_BindFails_RollbacksNewOnly() {
-            MultipartFile mockFile = mock(MultipartFile.class);
-            String newFileId = "new-file-123";
-            String oldFileId = "old-file-123";
-            String entityId = "entity-123";
-
-            when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenReturn(ResponseEntity.ok(newFileId));
-            when(fileStorageClient.bindReference(any(FileReferenceRequest.class))).thenThrow(
-                    createFeignException(500, "Bind failed")
-            );
-            when(fileStorageClient.unbindReference(any(FileReferenceRequest.class))).thenReturn(
-                    ResponseEntity.ok(buildUnbindResponse(newFileId, "job", entityId, 0, true))
-            );
-
-            FileReferenceCoordinator.EntityUpdater<String> updater = newFileIdParam -> "updated:" + newFileIdParam;
-            FileReferenceCoordinator.EntityIdGetter<String> idGetter = entity -> entityId;
-
-            assertThrows(FeignException.class,
-                    () -> fileReferenceCoordinator.executeUpdate("job", oldFileId, mockFile, updater, idGetter));
-
-            verify(fileStorageClient).unbindReference(any(FileReferenceRequest.class));
-            verify(fileStorageClient).deleteImageFromFileSystem(newFileId);
-            verify(fileStorageClient, never()).deleteImageFromFileSystem(oldFileId);
-        }
+        verify(fileStorageClient).uploadImageToFIleSystem(mockFile);
+        verify(fileStorageClient, never()).bindReference(any(FileReferenceRequest.class));
+        verify(fileStorageClient).deleteImageFromFileSystem(newImageId);
     }
 
-    @Nested
-    @DisplayName("核心流程测试 - executeDelete")
-    class ExecuteDeleteTests {
+    @Test
+    @DisplayName("创建职位失败：绑定引用后出错，应解绑并删除图片")
+    void testCreateJob_FailAfterBind_UnbindsAndDeletes() {
+        MultipartFile mockFile = mock(MultipartFile.class);
+        String newImageId = "new-image-456";
 
-        @Test
-        @DisplayName("executeDelete：先执行删除动作，再清理文件引用")
-        void testExecuteDelete_OrderOfOperations() {
-            String fileId = "file-123";
-            String entityId = "entity-123";
-            Runnable deletionAction = mock(Runnable.class);
+        when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenReturn(ResponseEntity.ok(newImageId));
+        when(categoryService.getCategoryById("category-123")).thenReturn(testCategory);
+        when(jobRepository.save(any(Job.class))).thenAnswer(invocation -> {
+            Job saved = invocation.getArgument(0);
+            ReflectionTestUtils.setField(saved, "id", "job-123");
+            return saved;
+        });
+        when(fileStorageClient.bindReference(any(FileReferenceRequest.class))).thenThrow(new RuntimeException("Bind failed"));
+        when(fileStorageClient.unbindReference(any(FileReferenceRequest.class))).thenReturn(
+                ResponseEntity.ok(buildUnbindResponse(newImageId, "job", "job-123", 0, true))
+        );
 
-            when(fileStorageClient.unbindReference(any(FileReferenceRequest.class))).thenReturn(
-                    ResponseEntity.ok(buildUnbindResponse(fileId, "job", entityId, 0, true))
-            );
+        jobService = createJobService();
+        assertThrows(RuntimeException.class, () -> jobService.createJob(createRequest, mockFile));
 
-            fileReferenceCoordinator.executeDelete("job", entityId, fileId, deletionAction);
-
-            verify(deletionAction).run();
-            verify(fileStorageClient).unbindReference(any(FileReferenceRequest.class));
-            verify(fileStorageClient).deleteImageFromFileSystem(fileId);
-        }
-
-        @Test
-        @DisplayName("executeDelete：无文件时只执行删除动作")
-        void testExecuteDelete_NoFile_OnlyDeletionAction() {
-            String entityId = "entity-123";
-            Runnable deletionAction = mock(Runnable.class);
-
-            fileReferenceCoordinator.executeDelete("job", entityId, null, deletionAction);
-
-            verify(deletionAction).run();
-            verify(fileStorageClient, never()).unbindReference(any(FileReferenceRequest.class));
-            verify(fileStorageClient, never()).deleteImageFromFileSystem(anyString());
-        }
+        verify(fileStorageClient).uploadImageToFIleSystem(mockFile);
+        verify(fileStorageClient).bindReference(any(FileReferenceRequest.class));
+        verify(fileStorageClient).unbindReference(any(FileReferenceRequest.class));
+        verify(fileStorageClient).deleteImageFromFileSystem(newImageId);
     }
 
-    @Nested
-    @DisplayName("错误码处理测试")
-    class ErrorCodeHandlingTests {
+    @Test
+    @DisplayName("创建职位失败：解绑失败时仍尝试删除图片")
+    void testCreateJob_UnbindFails_StillTriesDelete() {
+        MultipartFile mockFile = mock(MultipartFile.class);
+        String newImageId = "new-image-456";
 
-        @Test
-        @DisplayName("bindReference 404：抛出 FeignException.NotFound")
-        void testBindReference_404_ThrowsNotFound() {
-            when(fileStorageClient.bindReference(any(FileReferenceRequest.class))).thenThrow(
-                    createFeignException(404, "File not found")
-            );
+        when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenReturn(ResponseEntity.ok(newImageId));
+        when(categoryService.getCategoryById("category-123")).thenReturn(testCategory);
+        when(jobRepository.save(any(Job.class))).thenAnswer(invocation -> {
+            Job saved = invocation.getArgument(0);
+            ReflectionTestUtils.setField(saved, "id", "job-123");
+            return saved;
+        });
+        when(fileStorageClient.bindReference(any(FileReferenceRequest.class))).thenThrow(new RuntimeException("Bind failed"));
+        when(fileStorageClient.unbindReference(any(FileReferenceRequest.class))).thenThrow(new RuntimeException("Unbind failed"));
 
-            FeignException exception = assertThrows(FeignException.class,
-                    () -> fileReferenceCoordinator.bindReference("job", "entity-123", "file-123"));
+        jobService = createJobService();
+        assertThrows(RuntimeException.class, () -> jobService.createJob(createRequest, mockFile));
 
-            assertEquals(404, exception.status());
-        }
+        verify(fileStorageClient).deleteImageFromFileSystem(newImageId);
+    }
 
-        @Test
-        @DisplayName("bindReference 409：抛出 FeignException.Conflict")
-        void testBindReference_409_ThrowsConflict() {
-            when(fileStorageClient.bindReference(any(FileReferenceRequest.class))).thenThrow(
-                    createFeignException(409, "Conflict")
-            );
+    @Test
+    @DisplayName("更新职位成功：上传新图片 -> 保存业务数据 -> 绑定新引用 -> 清理旧引用")
+    void testUpdateJob_SuccessWithImageReplacement() {
+        MultipartFile mockFile = mock(MultipartFile.class);
+        String newImageId = "new-image-456";
+        String oldImageId = "old-image-123";
 
-            FeignException exception = assertThrows(FeignException.class,
-                    () -> fileReferenceCoordinator.bindReference("job", "entity-123", "file-123"));
+        when(jobRepository.findById("job-123")).thenReturn(Optional.of(testJob));
+        when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenReturn(ResponseEntity.ok(newImageId));
+        when(jobRepository.save(any(Job.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(fileStorageClient.bindReference(any(FileReferenceRequest.class))).thenReturn(
+                ResponseEntity.ok(buildBindResponse(newImageId, "job", "job-123", 1, true))
+        );
+        when(fileStorageClient.unbindReference(any(FileReferenceRequest.class))).thenReturn(
+                ResponseEntity.ok(buildUnbindResponse(oldImageId, "job", "job-123", 0, true))
+        );
+        when(fileStorageClient.deleteImageFromFileSystem(oldImageId)).thenReturn(ResponseEntity.ok().build());
 
-            assertEquals(409, exception.status());
-        }
+        jobService = createJobService();
+        Job result = jobService.updateJob(updateRequest, mockFile);
 
-        @Test
-        @DisplayName("bindReference 500：抛出 FeignException，status=500")
-        void testBindReference_500_ThrowsServerError() {
-            when(fileStorageClient.bindReference(any(FileReferenceRequest.class))).thenThrow(
-                    createFeignException(500, "Internal server error")
-            );
+        assertNotNull(result);
+        assertEquals(newImageId, result.getImageId());
+        verify(fileStorageClient).uploadImageToFIleSystem(mockFile);
+        verify(fileStorageClient).bindReference(any(FileReferenceRequest.class));
+        verify(fileStorageClient).unbindReference(any(FileReferenceRequest.class));
+        verify(fileStorageClient).deleteImageFromFileSystem(oldImageId);
+    }
 
-            FeignException exception = assertThrows(FeignException.class,
-                    () -> fileReferenceCoordinator.bindReference("job", "entity-123", "file-123"));
+    @Test
+    @DisplayName("更新职位成功：旧图片被其他实体引用时，解绑但不删除")
+    void testUpdateJob_Success_OldImageStillReferenced() {
+        MultipartFile mockFile = mock(MultipartFile.class);
+        String newImageId = "new-image-456";
+        String oldImageId = "old-image-123";
 
-            assertEquals(500, exception.status());
-        }
+        when(jobRepository.findById("job-123")).thenReturn(Optional.of(testJob));
+        when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenReturn(ResponseEntity.ok(newImageId));
+        when(jobRepository.save(any(Job.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(fileStorageClient.bindReference(any(FileReferenceRequest.class))).thenReturn(
+                ResponseEntity.ok(buildBindResponse(newImageId, "job", "job-123", 1, true))
+        );
+        when(fileStorageClient.unbindReference(any(FileReferenceRequest.class))).thenReturn(
+                ResponseEntity.ok(buildUnbindResponse(oldImageId, "job", "job-123", 2, true))
+        );
 
-        @Test
-        @DisplayName("uploadImage 5xx：抛出 FeignException，status=5xx")
-        void testUploadImage_5xx_Throws() {
-            MultipartFile mockFile = mock(MultipartFile.class);
-            when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenThrow(
-                    createFeignException(503, "Service unavailable")
-            );
+        jobService = createJobService();
+        Job result = jobService.updateJob(updateRequest, mockFile);
 
-            FeignException exception = assertThrows(FeignException.class,
-                    () -> fileStorageClientAdapter.uploadImage(mockFile));
+        assertNotNull(result);
+        verify(fileStorageClient).unbindReference(any(FileReferenceRequest.class));
+        verify(fileStorageClient, never()).deleteImageFromFileSystem(oldImageId);
+    }
 
-            assertEquals(503, exception.status());
-        }
+    @Test
+    @DisplayName("更新职位成功：无新图片时跳过上传，不修改图片引用")
+    void testUpdateJob_SuccessWithoutNewImage() {
+        when(jobRepository.findById("job-123")).thenReturn(Optional.of(testJob));
+        when(jobRepository.save(any(Job.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        @Test
-        @DisplayName("unbindReference 404：safeUnbindReference 返回 null")
-        void testSafeUnbindReference_404_ReturnsNull() {
-            when(fileStorageClient.unbindReference(any(FileReferenceRequest.class))).thenThrow(
-                    createFeignException(404, "Reference not found")
-            );
+        jobService = createJobService();
+        Job result = jobService.updateJob(updateRequest, null);
 
-            FileReferenceResponse result = fileReferenceCoordinator.safeUnbindReference("job", "entity-123", "file-123");
-            assertNull(result);
-        }
+        assertNotNull(result);
+        assertEquals("old-image-123", result.getImageId());
+        verify(fileStorageClient, never()).uploadImageToFIleSystem(any(MultipartFile.class));
+        verify(fileStorageClient, never()).bindReference(any(FileReferenceRequest.class));
+        verify(fileStorageClient, never()).unbindReference(any(FileReferenceRequest.class));
+        verify(fileStorageClient, never()).deleteImageFromFileSystem(anyString());
+    }
 
-        @Test
-        @DisplayName("unbindReference 5xx：safeUnbindReference 返回 null")
-        void testSafeUnbindReference_5xx_ReturnsNull() {
-            when(fileStorageClient.unbindReference(any(FileReferenceRequest.class))).thenThrow(
-                    createFeignException(503, "Service unavailable")
-            );
+    @Test
+    @DisplayName("更新职位失败：上传新图片后保存失败，删除新图片不影响旧图片")
+    void testUpdateJob_FailAfterUpload_DeletesNewFileOnly() {
+        MultipartFile mockFile = mock(MultipartFile.class);
+        String newImageId = "new-image-456";
 
-            FileReferenceResponse result = fileReferenceCoordinator.safeUnbindReference("job", "entity-123", "file-123");
-            assertNull(result);
-        }
+        when(jobRepository.findById("job-123")).thenReturn(Optional.of(testJob));
+        when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenReturn(ResponseEntity.ok(newImageId));
+        when(jobRepository.save(any(Job.class))).thenThrow(new RuntimeException("Database save failed"));
+
+        jobService = createJobService();
+        assertThrows(RuntimeException.class, () -> jobService.updateJob(updateRequest, mockFile));
+
+        verify(fileStorageClient).uploadImageToFIleSystem(mockFile);
+        verify(fileStorageClient, never()).bindReference(any(FileReferenceRequest.class));
+        verify(fileStorageClient, never()).unbindReference(any(FileReferenceRequest.class));
+        verify(fileStorageClient).deleteImageFromFileSystem(newImageId);
+        verify(fileStorageClient, never()).deleteImageFromFileSystem("old-image-123");
+    }
+
+    @Test
+    @DisplayName("更新职位失败：绑定新引用后出错，回滚新引用，保留旧引用")
+    void testUpdateJob_FailAfterNewBind_RollbacksNewOnly() {
+        MultipartFile mockFile = mock(MultipartFile.class);
+        String newImageId = "new-image-456";
+
+        when(jobRepository.findById("job-123")).thenReturn(Optional.of(testJob));
+        when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenReturn(ResponseEntity.ok(newImageId));
+        when(jobRepository.save(any(Job.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(fileStorageClient.bindReference(any(FileReferenceRequest.class))).thenThrow(new RuntimeException("Bind failed"));
+        when(fileStorageClient.unbindReference(any(FileReferenceRequest.class))).thenReturn(
+                ResponseEntity.ok(buildUnbindResponse(newImageId, "job", "job-123", 0, true))
+        );
+
+        jobService = createJobService();
+        assertThrows(RuntimeException.class, () -> jobService.updateJob(updateRequest, mockFile));
+
+        verify(fileStorageClient).bindReference(any(FileReferenceRequest.class));
+        verify(fileStorageClient).unbindReference(any(FileReferenceRequest.class));
+        verify(fileStorageClient).deleteImageFromFileSystem(newImageId);
+    }
+
+    @Test
+    @DisplayName("绑定引用返回 404（文件不存在）：应抛出异常并回滚")
+    void testBindReference_404_FileNotFound() {
+        MultipartFile mockFile = mock(MultipartFile.class);
+        String newImageId = "new-image-456";
+
+        when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenReturn(ResponseEntity.ok(newImageId));
+        when(categoryService.getCategoryById("category-123")).thenReturn(testCategory);
+        when(jobRepository.save(any(Job.class))).thenAnswer(invocation -> {
+            Job saved = invocation.getArgument(0);
+            ReflectionTestUtils.setField(saved, "id", "job-123");
+            return saved;
+        });
+        when(fileStorageClient.bindReference(any(FileReferenceRequest.class))).thenThrow(
+                createFeignException(404, "File not found")
+        );
+
+        jobService = createJobService();
+        assertThrows(RuntimeException.class, () -> jobService.createJob(createRequest, mockFile));
+        verify(fileStorageClient).deleteImageFromFileSystem(newImageId);
+    }
+
+    @Test
+    @DisplayName("绑定引用返回 409（冲突）：应抛出异常并回滚")
+    void testBindReference_409_Conflict() {
+        MultipartFile mockFile = mock(MultipartFile.class);
+        String newImageId = "new-image-456";
+
+        when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenReturn(ResponseEntity.ok(newImageId));
+        when(categoryService.getCategoryById("category-123")).thenReturn(testCategory);
+        when(jobRepository.save(any(Job.class))).thenAnswer(invocation -> {
+            Job saved = invocation.getArgument(0);
+            ReflectionTestUtils.setField(saved, "id", "job-123");
+            return saved;
+        });
+        when(fileStorageClient.bindReference(any(FileReferenceRequest.class))).thenThrow(
+                createFeignException(409, "Conflict")
+        );
+
+        jobService = createJobService();
+        assertThrows(RuntimeException.class, () -> jobService.createJob(createRequest, mockFile));
+        verify(fileStorageClient).deleteImageFromFileSystem(newImageId);
+    }
+
+    @Test
+    @DisplayName("绑定引用返回 500（服务端错误）：应抛出异常并回滚")
+    void testBindReference_500_ServerError() {
+        MultipartFile mockFile = mock(MultipartFile.class);
+        String newImageId = "new-image-456";
+
+        when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenReturn(ResponseEntity.ok(newImageId));
+        when(categoryService.getCategoryById("category-123")).thenReturn(testCategory);
+        when(jobRepository.save(any(Job.class))).thenAnswer(invocation -> {
+            Job saved = invocation.getArgument(0);
+            ReflectionTestUtils.setField(saved, "id", "job-123");
+            return saved;
+        });
+        when(fileStorageClient.bindReference(any(FileReferenceRequest.class))).thenThrow(
+                createFeignException(500, "Internal server error")
+        );
+
+        jobService = createJobService();
+        assertThrows(RuntimeException.class, () -> jobService.createJob(createRequest, mockFile));
+        verify(fileStorageClient).deleteImageFromFileSystem(newImageId);
+    }
+
+    @Test
+    @DisplayName("解绑引用返回 404：FileReferenceCoordinator 应安全处理，不抛出异常")
+    void testUnbindReference_404_SafeHandling() {
+        MultipartFile mockFile = mock(MultipartFile.class);
+        String newImageId = "new-image-456";
+
+        when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenReturn(ResponseEntity.ok(newImageId));
+        when(categoryService.getCategoryById("category-123")).thenReturn(testCategory);
+        when(jobRepository.save(any(Job.class))).thenAnswer(invocation -> {
+            Job saved = invocation.getArgument(0);
+            ReflectionTestUtils.setField(saved, "id", "job-123");
+            return saved;
+        });
+        when(fileStorageClient.bindReference(any(FileReferenceRequest.class))).thenThrow(new RuntimeException("Bind failed"));
+        when(fileStorageClient.unbindReference(any(FileReferenceRequest.class))).thenThrow(
+                createFeignException(404, "Reference not found")
+        );
+
+        jobService = createJobService();
+        assertThrows(RuntimeException.class, () -> jobService.createJob(createRequest, mockFile));
+        verify(fileStorageClient).deleteImageFromFileSystem(newImageId);
+    }
+
+    @Test
+    @DisplayName("解绑引用返回 5xx：FileReferenceCoordinator 应安全处理，不抛出异常")
+    void testUnbindReference_5xx_SafeHandling() {
+        MultipartFile mockFile = mock(MultipartFile.class);
+        String newImageId = "new-image-456";
+
+        when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenReturn(ResponseEntity.ok(newImageId));
+        when(categoryService.getCategoryById("category-123")).thenReturn(testCategory);
+        when(jobRepository.save(any(Job.class))).thenAnswer(invocation -> {
+            Job saved = invocation.getArgument(0);
+            ReflectionTestUtils.setField(saved, "id", "job-123");
+            return saved;
+        });
+        when(fileStorageClient.bindReference(any(FileReferenceRequest.class))).thenThrow(new RuntimeException("Bind failed"));
+        when(fileStorageClient.unbindReference(any(FileReferenceRequest.class))).thenThrow(
+                createFeignException(503, "Service unavailable")
+        );
+
+        jobService = createJobService();
+        assertThrows(RuntimeException.class, () -> jobService.createJob(createRequest, mockFile));
+        verify(fileStorageClient).deleteImageFromFileSystem(newImageId);
+    }
+
+    @Test
+    @DisplayName("删除图片返回 404：FileReferenceCoordinator 应安全处理")
+    void testDeleteImage_404_SafeHandling() {
+        MultipartFile mockFile = mock(MultipartFile.class);
+        String newImageId = "new-image-456";
+
+        when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenReturn(ResponseEntity.ok(newImageId));
+        when(categoryService.getCategoryById("category-123")).thenReturn(testCategory);
+        when(jobRepository.save(any(Job.class))).thenThrow(new RuntimeException("Database save failed"));
+        when(fileStorageClient.deleteImageFromFileSystem(newImageId)).thenThrow(
+                createFeignException(404, "File not found")
+        );
+
+        jobService = createJobService();
+        assertThrows(RuntimeException.class, () -> jobService.createJob(createRequest, mockFile));
+    }
+
+    @Test
+    @DisplayName("上传图片返回 5xx：应直接抛出异常")
+    void testUploadImage_5xx_ThrowsException() {
+        MultipartFile mockFile = mock(MultipartFile.class);
+
+        when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenThrow(
+                createFeignException(500, "Upload failed")
+        );
+        when(categoryService.getCategoryById("category-123")).thenReturn(testCategory);
+
+        jobService = createJobService();
+        assertThrows(RuntimeException.class, () -> jobService.createJob(createRequest, mockFile));
+        verify(jobRepository, never()).save(any(Job.class));
+        verify(fileStorageClient, never()).bindReference(any(FileReferenceRequest.class));
+        verify(fileStorageClient, never()).deleteImageFromFileSystem(anyString());
+    }
+
+    @Test
+    @DisplayName("验证创建流程回滚顺序：先解绑新引用，再删除新文件")
+    void testCreateJob_RollbackOrder() {
+        MultipartFile mockFile = mock(MultipartFile.class);
+        String newImageId = "new-image-456";
+
+        when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenReturn(ResponseEntity.ok(newImageId));
+        when(categoryService.getCategoryById("category-123")).thenReturn(testCategory);
+        when(jobRepository.save(any(Job.class))).thenAnswer(invocation -> {
+            Job saved = invocation.getArgument(0);
+            ReflectionTestUtils.setField(saved, "id", "job-123");
+            return saved;
+        });
+        when(fileStorageClient.bindReference(any(FileReferenceRequest.class))).thenThrow(new RuntimeException("Bind failed"));
+
+        jobService = createJobService();
+        assertThrows(RuntimeException.class, () -> jobService.createJob(createRequest, mockFile));
+
+        verify(fileStorageClient).unbindReference(any(FileReferenceRequest.class));
+        verify(fileStorageClient).deleteImageFromFileSystem(newImageId);
+    }
+
+    @Test
+    @DisplayName("验证更新流程回滚顺序：解绑新引用 -> 删除新文件 -> 不触动旧引用")
+    void testUpdateJob_RollbackOrder() {
+        MultipartFile mockFile = mock(MultipartFile.class);
+        String newImageId = "new-image-456";
+        String oldImageId = "old-image-123";
+
+        when(jobRepository.findById("job-123")).thenReturn(Optional.of(testJob));
+        when(fileStorageClient.uploadImageToFIleSystem(mockFile)).thenReturn(ResponseEntity.ok(newImageId));
+        when(jobRepository.save(any(Job.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(fileStorageClient.bindReference(any(FileReferenceRequest.class))).thenThrow(new RuntimeException("Bind failed"));
+
+        jobService = createJobService();
+        assertThrows(RuntimeException.class, () -> jobService.updateJob(updateRequest, mockFile));
+
+        verify(fileStorageClient).unbindReference(any(FileReferenceRequest.class));
+        verify(fileStorageClient).deleteImageFromFileSystem(newImageId);
+        verify(fileStorageClient, never()).unbindReference(any(FileReferenceRequest.class));
+        verify(fileStorageClient, never()).deleteImageFromFileSystem(oldImageId);
+    }
+
+    @Test
+    @DisplayName("bindReference：空参数时返回 null")
+    void testBindReference_NullFileId_ReturnsNull() {
+        FileReferenceResponse result = fileReferenceCoordinator.bindReference("job", "entity-123", null);
+        assertNull(result);
+
+        result = fileReferenceCoordinator.bindReference(null, "entity-123", "file-123");
+        assertNull(result);
+
+        result = fileReferenceCoordinator.bindReference("job", null, "file-123");
+        assertNull(result);
+
+        verify(fileStorageClient, never()).bindReference(any(FileReferenceRequest.class));
+    }
+
+    @Test
+    @DisplayName("safeUnbindReference：异常时返回 null 不抛出")
+    void testSafeUnbindReference_Exception_ReturnsNull() {
+        when(fileStorageClient.unbindReference(any(FileReferenceRequest.class))).thenThrow(new RuntimeException("Unbind failed"));
+
+        FileReferenceResponse result = fileReferenceCoordinator.safeUnbindReference("job", "entity-123", "file-123");
+        assertNull(result);
+    }
+
+    @Test
+    @DisplayName("safeDeleteFile：异常时不抛出")
+    void testSafeDeleteFile_Exception_NoThrow() {
+        when(fileStorageClient.deleteImageFromFileSystem("file-123")).thenThrow(new RuntimeException("Delete failed"));
+        assertDoesNotThrow(() -> fileReferenceCoordinator.safeDeleteFile("file-123"));
+    }
+
+    @Test
+    @DisplayName("executeDelete：先执行业务删除，再清理文件引用")
+    void testExecuteDelete_OrderOfOperations() {
+        String fileId = "test-file-123";
+        String entityId = "entity-123";
+        Runnable deletionAction = mock(Runnable.class);
+
+        when(fileStorageClient.unbindReference(any(FileReferenceRequest.class))).thenReturn(
+                ResponseEntity.ok(buildUnbindResponse(fileId, "job", entityId, 0, true))
+        );
+
+        fileReferenceCoordinator.executeDelete("job", entityId, fileId, deletionAction);
+
+        verify(deletionAction).run();
+        verify(fileStorageClient).unbindReference(any(FileReferenceRequest.class));
+        verify(fileStorageClient).deleteImageFromFileSystem(fileId);
     }
 }

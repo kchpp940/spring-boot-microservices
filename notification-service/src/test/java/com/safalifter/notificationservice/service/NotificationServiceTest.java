@@ -1,9 +1,9 @@
 package com.safalifter.notificationservice.service;
 
+import com.safalifter.notificationservice.enums.NotificationType;
 import com.safalifter.notificationservice.model.Notification;
 import com.safalifter.notificationservice.repository.NotificationRepository;
 import com.safalifter.notificationservice.request.SendNotificationRequest;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -11,10 +11,6 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-
-import java.time.LocalDateTime;
-import java.util.Arrays;
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -29,198 +25,359 @@ class NotificationServiceTest {
     @InjectMocks
     private NotificationService notificationService;
 
-    private SendNotificationRequest testRequest;
-    private Notification testNotification;
-
-    @BeforeEach
-    void setUp() {
-        testRequest = SendNotificationRequest.builder()
-                .userId("user-123")
-                .offerId("offer-456")
-                .message("Test notification message")
-                .build();
-
-        testNotification = Notification.builder()
-                .id("notif-uuid")
-                .userId("user-123")
-                .offerId("offer-456")
-                .message("Test notification message")
-                .creationTimestamp(LocalDateTime.now())
-                .build();
-    }
-
     @Test
-    @DisplayName("save 应将 SendNotificationRequest 保存为 Notification")
-    void testSave_PersistsNotification() {
-        when(notificationRepository.save(any(Notification.class))).thenReturn(testNotification);
+    @DisplayName("正常持久化：OFFER 通知应保存到数据库")
+    void save_OfferNotification_PersistsToDatabase() {
+        SendNotificationRequest request = SendNotificationRequest.builder()
+                .userId("advert-owner-123")
+                .offerId("offer-456")
+                .message("You have received an offer for your advertising.")
+                .notificationType(NotificationType.OFFER)
+                .build();
 
-        notificationService.save(testRequest);
+        when(notificationRepository.save(any(Notification.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        ArgumentCaptor<Notification> notificationCaptor = ArgumentCaptor.forClass(Notification.class);
-        verify(notificationRepository, times(1)).save(notificationCaptor.capture());
+        notificationService.save(request);
 
-        Notification saved = notificationCaptor.getValue();
-        assertEquals(testRequest.getUserId(), saved.getUserId());
-        assertEquals(testRequest.getOfferId(), saved.getOfferId());
-        assertEquals(testRequest.getMessage(), saved.getMessage());
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRepository, times(1)).save(captor.capture());
+
+        Notification saved = captor.getValue();
+        assertEquals("advert-owner-123", saved.getUserId());
+        assertEquals("offer-456", saved.getOfferId());
+        assertEquals("You have received an offer for your advertising.", saved.getMessage());
+        assertEquals(NotificationType.OFFER, saved.getType());
         assertNotNull(saved.getId());
     }
 
     @Test
-    @DisplayName("save 应为每个通知生成 UUID")
-    void testSave_GeneratesUUID() {
-        when(notificationRepository.save(any(Notification.class))).thenAnswer(invocation -> {
-            Notification n = invocation.getArgument(0);
-            assertNotNull(n.getId(), "ID should be set before save");
-            return n;
-        });
-
-        notificationService.save(testRequest);
-
-        verify(notificationRepository).save(any(Notification.class));
-    }
-
-    @Test
-    @DisplayName("getAllByUserId 应按创建时间降序返回通知")
-    void testGetAllByUserId_ReturnsNotificationsOrderByCreationTimestampDesc() {
-        String userId = "user-123";
-        Notification older = Notification.builder()
-                .id("notif-1")
-                .userId(userId)
-                .offerId("offer-1")
-                .message("Older notification")
-                .creationTimestamp(LocalDateTime.now().minusDays(2))
-                .build();
-        Notification newer = Notification.builder()
-                .id("notif-2")
-                .userId(userId)
-                .offerId("offer-2")
-                .message("Newer notification")
-                .creationTimestamp(LocalDateTime.now().minusDays(1))
+    @DisplayName("正常持久化：SYSTEM_MESSAGE 通知应保存到数据库（offerId 为 null）")
+    void save_SystemMessageNotification_PersistsToDatabase() {
+        SendNotificationRequest request = SendNotificationRequest.builder()
+                .userId("user-789")
+                .message("System maintenance scheduled.")
+                .notificationType(NotificationType.SYSTEM_MESSAGE)
+                .offerId(null)
                 .build();
 
-        when(notificationRepository.findAllByUserIdOrderByCreationTimestampDesc(userId))
-                .thenReturn(Arrays.asList(newer, older));
+        when(notificationRepository.save(any(Notification.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        List<Notification> result = notificationService.getAllByUserId(userId);
+        notificationService.save(request);
 
-        assertNotNull(result);
-        assertEquals(2, result.size());
-        assertEquals("notif-2", result.get(0).getId());
-        assertEquals("notif-1", result.get(1).getId());
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRepository, times(1)).save(captor.capture());
 
-        verify(notificationRepository).findAllByUserIdOrderByCreationTimestampDesc(userId);
+        Notification saved = captor.getValue();
+        assertEquals("user-789", saved.getUserId());
+        assertNull(saved.getOfferId());
+        assertEquals("System maintenance scheduled.", saved.getMessage());
+        assertEquals(NotificationType.SYSTEM_MESSAGE, saved.getType());
     }
 
     @Test
-    @DisplayName("getAllByUserId 应查询正确的 userId")
-    void testGetAllByUserId_UsesCorrectUserId() {
-        String specificUserId = "specific-user-999";
-
-        notificationService.getAllByUserId(specificUserId);
-
-        verify(notificationRepository).findAllByUserIdOrderByCreationTimestampDesc(specificUserId);
-        verify(notificationRepository, never()).findAllByUserIdOrderByCreationTimestampDesc("different-user");
-    }
-
-    @Test
-    @DisplayName("getAllByUserId 对于无通知的用户应返回空列表")
-    void testGetAllByUserId_ReturnsEmptyListWhenNoNotifications() {
-        String userIdWithNoNotifications = "user-with-no-notifications";
-
-        when(notificationRepository.findAllByUserIdOrderByCreationTimestampDesc(userIdWithNoNotifications))
-                .thenReturn(List.of());
-
-        List<Notification> result = notificationService.getAllByUserId(userIdWithNoNotifications);
-
-        assertNotNull(result);
-        assertTrue(result.isEmpty());
-    }
-
-    @Test
-    @DisplayName("getAllByOfferId 应按创建时间降序返回通知")
-    void testGetAllByOfferId_ReturnsNotificationsOrderByCreationTimestampDesc() {
-        String offerId = "offer-123";
-        Notification older = Notification.builder()
-                .id("notif-1")
-                .userId("user-1")
-                .offerId(offerId)
-                .message("Older notification")
-                .creationTimestamp(LocalDateTime.now().minusDays(2))
-                .build();
-        Notification newer = Notification.builder()
-                .id("notif-2")
-                .userId("user-2")
-                .offerId(offerId)
-                .message("Newer notification")
-                .creationTimestamp(LocalDateTime.now().minusDays(1))
+    @DisplayName("正常持久化：JOB_UPDATE 通知应保存到数据库")
+    void save_JobUpdateNotification_PersistsToDatabase() {
+        SendNotificationRequest request = SendNotificationRequest.builder()
+                .userId("user-789")
+                .offerId("offer-456")
+                .message("Your job has been updated.")
+                .notificationType(NotificationType.JOB_UPDATE)
                 .build();
 
-        when(notificationRepository.findAllByOfferIdOrderByCreationTimestampDesc(offerId))
-                .thenReturn(Arrays.asList(newer, older));
+        when(notificationRepository.save(any(Notification.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        List<Notification> result = notificationService.getAllByOfferId(offerId);
+        notificationService.save(request);
 
-        assertNotNull(result);
-        assertEquals(2, result.size());
-        assertEquals("notif-2", result.get(0).getId());
-        assertEquals("notif-1", result.get(1).getId());
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRepository, times(1)).save(captor.capture());
 
-        verify(notificationRepository).findAllByOfferIdOrderByCreationTimestampDesc(offerId);
+        Notification saved = captor.getValue();
+        assertEquals(NotificationType.JOB_UPDATE, saved.getType());
     }
 
     @Test
-    @DisplayName("getAllByOfferId 应查询正确的 offerId")
-    void testGetAllByOfferId_UsesCorrectOfferId() {
-        String specificOfferId = "offer-999";
+    @DisplayName("缺字段：notificationType 为 null 时仍应保存")
+    void save_NullNotificationType_StillSaves() {
+        SendNotificationRequest request = SendNotificationRequest.builder()
+                .userId("user-legacy")
+                .offerId("offer-legacy")
+                .message("Legacy format message")
+                .notificationType(null)
+                .build();
 
-        notificationService.getAllByOfferId(specificOfferId);
+        when(notificationRepository.save(any(Notification.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        verify(notificationRepository).findAllByOfferIdOrderByCreationTimestampDesc(specificOfferId);
-        verify(notificationRepository, never()).findAllByOfferIdOrderByCreationTimestampDesc("different-offer");
+        notificationService.save(request);
+
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRepository, times(1)).save(captor.capture());
+
+        Notification saved = captor.getValue();
+        assertNull(saved.getType());
     }
 
     @Test
-    @DisplayName("getAllByOfferId 对于无通知的 offer 应返回空列表")
-    void testGetAllByOfferId_ReturnsEmptyListWhenNoNotifications() {
-        String offerIdWithNoNotifications = "offer-with-no-notifications";
+    @DisplayName("缺字段：offerId 为 null 时仍应保存（如系统通知）")
+    void save_NullOfferId_StillSaves() {
+        SendNotificationRequest request = SendNotificationRequest.builder()
+                .userId("user-123")
+                .message("System broadcast")
+                .notificationType(NotificationType.SYSTEM_MESSAGE)
+                .offerId(null)
+                .build();
 
-        when(notificationRepository.findAllByOfferIdOrderByCreationTimestampDesc(offerIdWithNoNotifications))
-                .thenReturn(List.of());
+        when(notificationRepository.save(any(Notification.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        List<Notification> result = notificationService.getAllByOfferId(offerIdWithNoNotifications);
+        notificationService.save(request);
 
-        assertNotNull(result);
-        assertTrue(result.isEmpty());
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRepository, times(1)).save(captor.capture());
+
+        Notification saved = captor.getValue();
+        assertNull(saved.getOfferId());
     }
 
     @Test
-    @DisplayName("getAllByOfferId 应聚合来自不同用户的通知")
-    void testGetAllByOfferId_AggregatesNotificationsFromDifferentUsers() {
-        String offerId = "offer-123";
-        Notification advertOwnerNotif = Notification.builder()
-                .id("notif-1")
+    @DisplayName("缺字段：message 为 null 时仍应保存")
+    void save_NullMessage_StillSaves() {
+        SendNotificationRequest request = SendNotificationRequest.builder()
+                .userId("user-123")
+                .offerId("offer-456")
+                .notificationType(NotificationType.OFFER)
+                .message(null)
+                .build();
+
+        when(notificationRepository.save(any(Notification.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        notificationService.save(request);
+
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRepository, times(1)).save(captor.capture());
+
+        Notification saved = captor.getValue();
+        assertNull(saved.getMessage());
+    }
+
+    @Test
+    @DisplayName("重复 offerId：相同 offerId 但不同消息应分别保存")
+    void save_SameOfferIdDifferentMessage_SavesBoth() {
+        SendNotificationRequest request1 = SendNotificationRequest.builder()
+                .userId("user-123")
+                .offerId("offer-456")
+                .message("Offer received")
+                .notificationType(NotificationType.OFFER)
+                .build();
+
+        SendNotificationRequest request2 = SendNotificationRequest.builder()
+                .userId("user-123")
+                .offerId("offer-456")
+                .message("Offer accepted")
+                .notificationType(NotificationType.OFFER)
+                .build();
+
+        when(notificationRepository.save(any(Notification.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        notificationService.save(request1);
+        notificationService.save(request2);
+
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRepository, times(2)).save(captor.capture());
+
+        assertEquals(2, captor.getAllValues().size());
+        assertEquals("Offer received", captor.getAllValues().get(0).getMessage());
+        assertEquals("Offer accepted", captor.getAllValues().get(1).getMessage());
+        assertNotEquals(captor.getAllValues().get(0).getId(), captor.getAllValues().get(1).getId());
+    }
+
+    @Test
+    @DisplayName("重复 offerId：相同 offerId 但不同类型应分别保存")
+    void save_SameOfferIdDifferentType_SavesBoth() {
+        SendNotificationRequest offerRequest = SendNotificationRequest.builder()
+                .userId("user-123")
+                .offerId("offer-456")
+                .message("Test message")
+                .notificationType(NotificationType.OFFER)
+                .build();
+
+        SendNotificationRequest jobUpdateRequest = SendNotificationRequest.builder()
+                .userId("user-123")
+                .offerId("offer-456")
+                .message("Test message")
+                .notificationType(NotificationType.JOB_UPDATE)
+                .build();
+
+        when(notificationRepository.save(any(Notification.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        notificationService.save(offerRequest);
+        notificationService.save(jobUpdateRequest);
+
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRepository, times(2)).save(captor.capture());
+
+        assertEquals(NotificationType.OFFER, captor.getAllValues().get(0).getType());
+        assertEquals(NotificationType.JOB_UPDATE, captor.getAllValues().get(1).getType());
+        assertNotEquals(captor.getAllValues().get(0).getId(), captor.getAllValues().get(1).getId());
+    }
+
+    @Test
+    @DisplayName("重复 offerId：完全相同的消息也会被保存多次（无去重机制）")
+    void save_IdenticalMessage_SavesMultipleTimes_NoDeduplication() {
+        SendNotificationRequest duplicateRequest = SendNotificationRequest.builder()
+                .userId("advert-owner-123")
+                .offerId("offer-456")
+                .message("You have received an offer for your advertising.")
+                .notificationType(NotificationType.OFFER)
+                .build();
+
+        when(notificationRepository.save(any(Notification.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        notificationService.save(duplicateRequest);
+        notificationService.save(duplicateRequest);
+        notificationService.save(duplicateRequest);
+
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRepository, times(3)).save(captor.capture());
+
+        assertEquals(3, captor.getAllValues().size());
+
+        for (Notification n : captor.getAllValues()) {
+            assertEquals("advert-owner-123", n.getUserId());
+            assertEquals("offer-456", n.getOfferId());
+            assertEquals("You have received an offer for your advertising.", n.getMessage());
+            assertEquals(NotificationType.OFFER, n.getType());
+        }
+
+        String id1 = captor.getAllValues().get(0).getId();
+        String id2 = captor.getAllValues().get(1).getId();
+        String id3 = captor.getAllValues().get(2).getId();
+
+        assertNotEquals(id1, id2, "Each saved notification should have unique ID (id1 vs id2)");
+        assertNotEquals(id1, id3, "Each saved notification should have unique ID (id1 vs id3)");
+        assertNotEquals(id2, id3, "Each saved notification should have unique ID (id2 vs id3)");
+    }
+
+    @Test
+    @DisplayName("重复消费策略：相同 offerId 不同用户的通知都应保存")
+    void save_SameOfferIdDifferentUsers_BothSaved() {
+        SendNotificationRequest advertOwnerRequest = SendNotificationRequest.builder()
                 .userId("advert-owner")
-                .offerId(offerId)
-                .message("You have received an offer")
-                .creationTimestamp(LocalDateTime.now().minusDays(2))
+                .offerId("offer-456")
+                .message("You have received an offer for your advertising.")
+                .notificationType(NotificationType.OFFER)
                 .build();
-        Notification offerMakerNotif = Notification.builder()
-                .id("notif-2")
+
+        SendNotificationRequest offerMakerRequest = SendNotificationRequest.builder()
                 .userId("offer-maker")
-                .offerId(offerId)
-                .message("Your offer has been accepted")
-                .creationTimestamp(LocalDateTime.now().minusDays(1))
+                .offerId("offer-456")
+                .message("Your offer has been sent to advert owner.")
+                .notificationType(NotificationType.OFFER)
                 .build();
 
-        when(notificationRepository.findAllByOfferIdOrderByCreationTimestampDesc(offerId))
-                .thenReturn(Arrays.asList(offerMakerNotif, advertOwnerNotif));
+        when(notificationRepository.save(any(Notification.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        List<Notification> result = notificationService.getAllByOfferId(offerId);
+        notificationService.save(advertOwnerRequest);
+        notificationService.save(offerMakerRequest);
 
-        assertNotNull(result);
-        assertEquals(2, result.size());
-        assertEquals("offer-maker", result.get(0).getUserId());
-        assertEquals("advert-owner", result.get(1).getUserId());
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRepository, times(2)).save(captor.capture());
+
+        assertEquals(2, captor.getAllValues().size());
+        assertEquals("advert-owner", captor.getAllValues().get(0).getUserId());
+        assertEquals("offer-maker", captor.getAllValues().get(1).getUserId());
+        assertEquals("offer-456", captor.getAllValues().get(0).getOfferId());
+        assertEquals("offer-456", captor.getAllValues().get(1).getOfferId());
+        assertNotEquals(captor.getAllValues().get(0).getId(), captor.getAllValues().get(1).getId());
+    }
+
+    @Test
+    @DisplayName("数据库保存失败：应抛出异常，由上层处理")
+    void save_DatabaseFailure_ThrowsException() {
+        SendNotificationRequest request = SendNotificationRequest.builder()
+                .userId("user-123")
+                .offerId("offer-456")
+                .message("Test message")
+                .notificationType(NotificationType.OFFER)
+                .build();
+
+        doThrow(new RuntimeException("Database connection failed"))
+                .when(notificationRepository).save(any(Notification.class));
+
+        RuntimeException exception = assertThrows(RuntimeException.class,
+                () -> notificationService.save(request));
+
+        assertEquals("Database connection failed", exception.getMessage());
+        verify(notificationRepository, times(1)).save(any(Notification.class));
+    }
+
+    @Test
+    @DisplayName("数据库保存失败：任何异常都应向上抛出")
+    void save_AnyDatabaseException_IsPropagated() {
+        SendNotificationRequest request = SendNotificationRequest.builder()
+                .userId("user-123")
+                .offerId("offer-456")
+                .message("Test message")
+                .notificationType(NotificationType.OFFER)
+                .build();
+
+        doThrow(new IllegalStateException("Constraint violation"))
+                .when(notificationRepository).save(any(Notification.class));
+
+        IllegalStateException exception = assertThrows(IllegalStateException.class,
+                () -> notificationService.save(request));
+
+        assertEquals("Constraint violation", exception.getMessage());
+    }
+
+    @Test
+    @DisplayName("生成 UUID：每个通知都应有唯一 ID")
+    void save_GeneratesUniqueIdForEachNotification() {
+        SendNotificationRequest request1 = SendNotificationRequest.builder()
+                .userId("user-1")
+                .offerId("offer-1")
+                .message("Msg 1")
+                .notificationType(NotificationType.OFFER)
+                .build();
+
+        SendNotificationRequest request2 = SendNotificationRequest.builder()
+                .userId("user-2")
+                .offerId("offer-2")
+                .message("Msg 2")
+                .notificationType(NotificationType.OFFER)
+                .build();
+
+        when(notificationRepository.save(any(Notification.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        notificationService.save(request1);
+        notificationService.save(request2);
+
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(notificationRepository, times(2)).save(captor.capture());
+
+        String id1 = captor.getAllValues().get(0).getId();
+        String id2 = captor.getAllValues().get(1).getId();
+
+        assertNotNull(id1);
+        assertNotNull(id2);
+        assertNotEquals(id1, id2);
+    }
+
+    @Test
+    @DisplayName("getAllByUserId 应委托给 repository")
+    void getAllByUserId_DelegatesToRepository() {
+        String userId = "user-123";
+
+        notificationService.getAllByUserId(userId);
+
+        verify(notificationRepository, times(1)).findAllByUserIdOrderByCreationTimestampDesc(userId);
+    }
+
+    @Test
+    @DisplayName("getAllByOfferId 应委托给 repository")
+    void getAllByOfferId_DelegatesToRepository() {
+        String offerId = "offer-456";
+
+        notificationService.getAllByOfferId(offerId);
+
+        verify(notificationRepository, times(1)).findAllByOfferIdOrderByCreationTimestampDesc(offerId);
     }
 }

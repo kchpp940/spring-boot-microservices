@@ -22,8 +22,8 @@ public class NotificationListener {
                 log.debug("Kafka message has no traceId, generating new one for backwards compatibility");
             }
             TraceIdUtil.setTraceId(traceId);
-            log.info("Consumed Kafka message: userId={}, offerId={}, traceId={}", 
-                    request.getUserId(), request.getOfferId(), TraceIdUtil.getTraceId());
+            log.info("Consumed Kafka message: userId={}, offerId={}, type={}, traceId={}",
+                    request.getUserId(), request.getOfferId(), request.getNotificationType(), TraceIdUtil.getTraceId());
             notificationService.save(request);
         } finally {
             TraceIdUtil.clearTraceId();

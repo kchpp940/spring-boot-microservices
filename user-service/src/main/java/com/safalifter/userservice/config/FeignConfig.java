@@ -1,6 +1,8 @@
 package com.safalifter.userservice.config;
 
 import com.safalifter.userservice.client.CustomErrorDecoder;
+import com.safalifter.userservice.config.trace.TraceIdFeignInterceptor;
+import feign.RequestInterceptor;
 import feign.codec.ErrorDecoder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -10,5 +12,10 @@ public class FeignConfig {
     @Bean
     public ErrorDecoder errorDecoder() {
         return new CustomErrorDecoder();
+    }
+
+    @Bean
+    public RequestInterceptor requestInterceptor() {
+        return new TraceIdFeignInterceptor();
     }
 }

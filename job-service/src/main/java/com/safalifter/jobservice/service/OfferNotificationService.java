@@ -1,6 +1,7 @@
 package com.safalifter.jobservice.service;
 
 import com.safalifter.jobservice.client.adapter.UserServiceClientAdapter;
+import com.safalifter.jobservice.config.trace.TraceIdUtil;
 import com.safalifter.jobservice.dto.NotificationPreferencesDto;
 import com.safalifter.jobservice.enums.NotificationType;
 import com.safalifter.jobservice.model.Advert;
@@ -31,14 +32,17 @@ public class OfferNotificationService {
         NotificationPreferencesDto prefs = getNotificationPreferences(advertOwnerUserId);
 
         if (prefs.isEnabled(NotificationType.OFFER)) {
+            String traceId = TraceIdUtil.getTraceId();
             SendNotificationRequest notification = SendNotificationRequest.builder()
                     .message("You have received an offer for your advertising.")
                     .userId(advertOwnerUserId)
                     .offerId(offer.getId())
                     .notificationType(NotificationType.OFFER)
+                    .traceId(traceId)
                     .build();
 
             kafkaTemplate.send(topic.name(), notification);
+            log.info("Sent OFFER notification to Kafka for userId={}, traceId={}", advertOwnerUserId, traceId);
         } else {
             log.info("User {} has disabled OFFER notifications, skipping send", advertOwnerUserId);
         }
@@ -57,14 +61,17 @@ public class OfferNotificationService {
         NotificationPreferencesDto prefs = getNotificationPreferences(advertOwnerUserId);
 
         if (prefs.isEnabled(NotificationType.OFFER)) {
+            String traceId = TraceIdUtil.getTraceId();
             SendNotificationRequest notification = SendNotificationRequest.builder()
                     .message("An offer has been withdrawn.")
                     .userId(advertOwnerUserId)
                     .offerId(offer.getId())
                     .notificationType(NotificationType.OFFER)
+                    .traceId(traceId)
                     .build();
 
             kafkaTemplate.send(topic.name(), notification);
+            log.info("Sent OFFER withdrawal notification to Kafka for userId={}, traceId={}", advertOwnerUserId, traceId);
         }
     }
 
@@ -77,14 +84,17 @@ public class OfferNotificationService {
         NotificationPreferencesDto prefs = getNotificationPreferences(offerMakerUserId);
 
         if (prefs.isEnabled(NotificationType.OFFER)) {
+            String traceId = TraceIdUtil.getTraceId();
             SendNotificationRequest notification = SendNotificationRequest.builder()
                     .message(message)
                     .userId(offerMakerUserId)
                     .offerId(offer.getId())
                     .notificationType(NotificationType.OFFER)
+                    .traceId(traceId)
                     .build();
 
             kafkaTemplate.send(topic.name(), notification);
+            log.info("Sent OFFER notification to Kafka for userId={}, traceId={}", offerMakerUserId, traceId);
         }
     }
 }

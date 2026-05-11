@@ -1,5 +1,6 @@
 package com.safalifter.notificationservice.listeners;
 
+import com.safalifter.notificationservice.config.trace.TraceIdUtil;
 import com.safalifter.notificationservice.request.SendNotificationRequest;
 import com.safalifter.notificationservice.service.NotificationService;
 import lombok.RequiredArgsConstructor;
@@ -15,7 +16,17 @@ public class NotificationListener {
 
     @KafkaListener(topics = {"${spring.kafka.topic.name}"}, groupId = "${spring.kafka.consumer.group-id}")
     public void consume(final SendNotificationRequest request) {
-        log.info("Consumed message: {}", request.toString());
-        notificationService.save(request);
+        try {
+            String traceId = request.getTraceId();
+            if (traceId == null || traceId.isEmpty()) {
+                log.debug("Kafka message has no traceId, generating new one for backwards compatibility");
+            }
+            TraceIdUtil.setTraceId(traceId);
+            log.info("Consumed Kafka message: userId={}, offerId={}, traceId={}", 
+                    request.getUserId(), request.getOfferId(), TraceIdUtil.getTraceId());
+            notificationService.save(request);
+        } finally {
+            TraceIdUtil.clearTraceId();
+        }
     }
 }

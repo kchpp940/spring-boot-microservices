@@ -1,5 +1,7 @@
 package com.safalifter.userservice.exc;
 
+import com.safalifter.userservice.config.trace.TraceIdUtil;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -16,6 +18,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 import java.util.HashMap;
 import java.util.Map;
 
+@Slf4j
 @RestControllerAdvice
 public class GeneralExceptionHandler extends ResponseEntityExceptionHandler {
 
@@ -24,7 +27,7 @@ public class GeneralExceptionHandler extends ResponseEntityExceptionHandler {
                                                                   @NonNull HttpHeaders headers,
                                                                   @NonNull HttpStatus status,
                                                                   @NonNull WebRequest request) {
-        Map<String, String> errors = new HashMap<>();
+        Map<String, Object> errors = new HashMap<>();
         ex.getBindingResult().getAllErrors().forEach(error -> {
             if (error instanceof FieldError) {
                 FieldError fieldError = (FieldError) error;
@@ -33,56 +36,70 @@ public class GeneralExceptionHandler extends ResponseEntityExceptionHandler {
                 errors.put(error.getObjectName(), error.getDefaultMessage());
             }
         });
+        addTraceId(errors);
         return ResponseEntity.badRequest().body(errors);
     }
 
     @ExceptionHandler(GenericErrorResponse.class)
     public ResponseEntity<?> genericError(GenericErrorResponse exception) {
-        Map<String, String> errors = new HashMap<>();
+        Map<String, Object> errors = new HashMap<>();
         errors.put("error", exception.getMessage());
+        String traceId = exception.getTraceId();
+        if (traceId == null) {
+            traceId = TraceIdUtil.getTraceId();
+        }
+        if (traceId != null) {
+            errors.put("traceId", traceId);
+        }
         return new ResponseEntity<>(errors, exception.getHttpStatus());
     }
 
     @ExceptionHandler(Exception.class)
     public final ResponseEntity<?> handleAllException(Exception ex) {
-        Map<String, String> errors = new HashMap<>();
+        log.error("Unhandled exception", ex);
+        Map<String, Object> errors = new HashMap<>();
         errors.put("error", ex.getMessage() != null ? ex.getMessage() : "Internal server error");
+        addTraceId(errors);
         return new ResponseEntity<>(errors, HttpStatus.BAD_REQUEST);
     }
 
     @ExceptionHandler(NotFoundException.class)
     public ResponseEntity<?> notFoundException(NotFoundException exception) {
-        Map<String, String> errors = new HashMap<>();
+        Map<String, Object> errors = new HashMap<>();
         errors.put("error", exception.getMessage());
+        addTraceId(errors);
         return new ResponseEntity<>(errors, HttpStatus.NOT_FOUND);
     }
 
     @ExceptionHandler(UnauthorizedException.class)
     public ResponseEntity<?> unauthorizedException(UnauthorizedException exception) {
-        Map<String, String> errors = new HashMap<>();
+        Map<String, Object> errors = new HashMap<>();
         errors.put("error", exception.getMessage());
+        addTraceId(errors);
         return new ResponseEntity<>(errors, HttpStatus.UNAUTHORIZED);
     }
 
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<?> accessDeniedException(AccessDeniedException exception) {
-        Map<String, String> errors = new HashMap<>();
+        Map<String, Object> errors = new HashMap<>();
         errors.put("error", exception.getMessage());
+        addTraceId(errors);
         return new ResponseEntity<>(errors, HttpStatus.FORBIDDEN);
     }
 
     @ExceptionHandler(DuplicateResourceException.class)
     public ResponseEntity<?> duplicateResourceException(DuplicateResourceException exception) {
-        Map<String, String> errors = new HashMap<>();
+        Map<String, Object> errors = new HashMap<>();
         errors.put("error", exception.getMessage());
         errors.put("field", exception.getField());
         errors.put("value", exception.getValue());
+        addTraceId(errors);
         return new ResponseEntity<>(errors, exception.getHttpStatus());
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<?> dataIntegrityViolationException(DataIntegrityViolationException exception) {
-        Map<String, String> errors = new HashMap<>();
+        Map<String, Object> errors = new HashMap<>();
         String message = exception.getMessage() != null ? exception.getMessage().toLowerCase() : "";
 
         if (containsAny(message, "username", "uk_username", "idx_username")) {
@@ -94,6 +111,7 @@ public class GeneralExceptionHandler extends ResponseEntityExceptionHandler {
         } else {
             errors.put("error", "Data integrity violation: duplicate resource");
         }
+        addTraceId(errors);
         return new ResponseEntity<>(errors, HttpStatus.CONFLICT);
     }
 
@@ -105,5 +123,12 @@ public class GeneralExceptionHandler extends ResponseEntityExceptionHandler {
             }
         }
         return false;
+    }
+
+    private void addTraceId(Map<String, Object> response) {
+        String traceId = TraceIdUtil.getTraceId();
+        if (traceId != null && !traceId.isEmpty()) {
+            response.put("traceId", traceId);
+        }
     }
 }

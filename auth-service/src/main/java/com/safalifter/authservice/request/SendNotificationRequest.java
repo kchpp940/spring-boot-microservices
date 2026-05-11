@@ -17,4 +17,5 @@ public class SendNotificationRequest {
     private String offerId;
     private String message;
     private NotificationType notificationType;
+    private String traceId;
 }

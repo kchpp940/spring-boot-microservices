@@ -1,5 +1,6 @@
 package com.safalifter.authservice.exc;
 
+import com.safalifter.authservice.config.trace.TraceIdUtil;
 import lombok.Builder;
 import lombok.Getter;
 import org.springframework.http.HttpStatus;
@@ -9,10 +10,17 @@ import org.springframework.http.HttpStatus;
 public class GenericErrorResponse extends RuntimeException {
     private final String message;
     private final HttpStatus httpStatus;
+    private final String traceId;
 
-    public GenericErrorResponse(String message, HttpStatus httpStatus) {
+    @java.beans.ConstructorProperties({"message", "httpStatus", "traceId"})
+    GenericErrorResponse(String message, HttpStatus httpStatus, String traceId) {
         super(message);
         this.message = message;
         this.httpStatus = httpStatus;
+        this.traceId = traceId != null ? traceId : TraceIdUtil.getTraceId();
+    }
+
+    public GenericErrorResponse(String message, HttpStatus httpStatus) {
+        this(message, httpStatus, TraceIdUtil.getTraceId());
     }
 }

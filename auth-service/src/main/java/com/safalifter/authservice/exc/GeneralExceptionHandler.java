@@ -1,5 +1,6 @@
 package com.safalifter.authservice.exc;
 
+import com.safalifter.authservice.config.trace.TraceIdUtil;
 import com.safalifter.authservice.orchestration.exception.RegistrationBusinessException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -26,7 +27,7 @@ public class GeneralExceptionHandler extends ResponseEntityExceptionHandler {
                                                                   @NonNull HttpHeaders headers,
                                                                   @NonNull HttpStatus status,
                                                                   @NonNull WebRequest request) {
-        Map<String, String> errors = new HashMap<>();
+        Map<String, Object> errors = new HashMap<>();
         ex.getBindingResult().getAllErrors().forEach(error -> {
             if (error instanceof FieldError) {
                 FieldError fieldError = (FieldError) error;
@@ -35,6 +36,7 @@ public class GeneralExceptionHandler extends ResponseEntityExceptionHandler {
                 errors.put(error.getObjectName(), error.getDefaultMessage());
             }
         });
+        addTraceId(errors);
         return ResponseEntity.badRequest().body(errors);
     }
 
@@ -42,42 +44,63 @@ public class GeneralExceptionHandler extends ResponseEntityExceptionHandler {
     public ResponseEntity<?> handleRegistrationBusinessException(RegistrationBusinessException exception) {
         log.info("Registration business exception: {}", exception.getBusinessError().getMessage());
         GenericErrorResponse businessError = exception.getBusinessError();
-        Map<String, String> errors = new HashMap<>();
+        Map<String, Object> errors = new HashMap<>();
         errors.put("error", businessError.getMessage());
+        addTraceId(errors);
         return new ResponseEntity<>(errors, businessError.getHttpStatus());
     }
 
     @ExceptionHandler(GenericErrorResponse.class)
     public ResponseEntity<?> genericError(GenericErrorResponse exception) {
-        Map<String, String> errors = new HashMap<>();
+        Map<String, Object> errors = new HashMap<>();
         errors.put("error", exception.getMessage());
+        String traceId = exception.getTraceId();
+        if (traceId == null) {
+            traceId = TraceIdUtil.getTraceId();
+        }
+        if (traceId != null) {
+            errors.put("traceId", traceId);
+        }
         return new ResponseEntity<>(errors, exception.getHttpStatus());
     }
 
     @ExceptionHandler(WrongCredentialsException.class)
     public ResponseEntity<?> usernameOrPasswordInvalidException(WrongCredentialsException exception) {
-        Map<String, String> errors = new HashMap<>();
+        Map<String, Object> errors = new HashMap<>();
         errors.put("error", exception.getMessage());
+        addTraceId(errors);
         return new ResponseEntity<>(errors, HttpStatus.UNAUTHORIZED);
     }
 
     @ExceptionHandler(ValidationException.class)
     public ResponseEntity<?> validationException(ValidationException exception) {
-        return ResponseEntity.badRequest().body(exception.getValidationErrors());
+        Map<String, Object> errors = new HashMap<>();
+        errors.put("errors", exception.getValidationErrors());
+        addTraceId(errors);
+        return ResponseEntity.badRequest().body(errors);
     }
 
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<?> accessDeniedException(AccessDeniedException exception) {
-        Map<String, String> errors = new HashMap<>();
+        Map<String, Object> errors = new HashMap<>();
         errors.put("error", exception.getMessage());
+        addTraceId(errors);
         return new ResponseEntity<>(errors, HttpStatus.FORBIDDEN);
     }
 
     @ExceptionHandler(Exception.class)
     public final ResponseEntity<?> handleAllException(Exception ex) {
         log.error("Unhandled exception", ex);
-        Map<String, String> errors = new HashMap<>();
+        Map<String, Object> errors = new HashMap<>();
         errors.put("error", ex.getMessage() != null ? ex.getMessage() : "Internal server error");
+        addTraceId(errors);
         return new ResponseEntity<>(errors, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    private void addTraceId(Map<String, Object> response) {
+        String traceId = TraceIdUtil.getTraceId();
+        if (traceId != null && !traceId.isEmpty()) {
+            response.put("traceId", traceId);
+        }
     }
 }

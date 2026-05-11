@@ -2,6 +2,7 @@ package com.safalifter.authservice.orchestration;
 
 import com.safalifter.authservice.client.adapter.NotificationServiceClientAdapter;
 import com.safalifter.authservice.client.adapter.UserServiceClientAdapter;
+import com.safalifter.authservice.config.trace.TraceIdUtil;
 import com.safalifter.authservice.dto.RegisterDto;
 import com.safalifter.authservice.enums.NotificationType;
 import com.safalifter.authservice.exc.GenericErrorResponse;
@@ -100,6 +101,7 @@ public class RegistrationOrchestrator {
                 .userId(user.getId())
                 .message("Welcome to our platform, " + user.getUsername() + "!")
                 .notificationType(NotificationType.SYSTEM_MESSAGE)
+                .traceId(TraceIdUtil.getTraceId())
                 .build();
 
         try {

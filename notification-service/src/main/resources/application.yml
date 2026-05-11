@@ -6,3 +6,26 @@ spring:
     name: notification-service
   config:
     import: configserver:${CONFIG_SERVER_URL:http://localhost:8888/}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: false
+  health:
+    defaults:
+      enabled: true
+    db:
+      enabled: true
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+
+management.endpoint.health.group.liveness.include=livenessState
+management.endpoint.health.group.readiness.include=readinessState,db,kafka

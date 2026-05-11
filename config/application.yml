@@ -16,6 +16,16 @@ spring:
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+      retry-backoff-ms: 1000
+      enable-idempotence: true
+      max-in-flight-requests-per-connection: 5
+      properties:
+        delivery.timeout.ms: 30000
+        linger.ms: 5
+        request.timeout.ms: 15000
+        max.block.ms: 60000
     consumer:
       group-id: notification
       auto-offset-reset: earliest
@@ -52,3 +62,43 @@ jwt:
 feign:
   circuitbreaker:
     enabled: true
+  client:
+    config:
+      default:
+        connectTimeout: 3000
+        readTimeout: 5000
+        loggerLevel: BASIC
+      user-service:
+        connectTimeout: 5000
+        readTimeout: 10000
+      notification-service:
+        connectTimeout: 3000
+        readTimeout: 5000
+      file-storage:
+        connectTimeout: 5000
+        readTimeout: 30000
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        registerHealthIndicator: true
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        waitDurationInOpenState: 10s
+        failureRateThreshold: 50
+        eventConsumerBufferSize: 10
+    instances:
+      user-service:
+        baseConfig: default
+      notification-service:
+        baseConfig: default
+      file-storage:
+        baseConfig: default
+  timelimiter:
+    configs:
+      default:
+        timeoutDuration: 10s
+        cancelRunningFuture: true
